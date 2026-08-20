@@ -8,8 +8,8 @@ Runs as a single self-contained web page, as a CLI, and as a Claude Code skill.
 JavaScript that runs in your browser or on your machine.
 
 ```bash
-git clone https://github.com/macvaughn99-bot/IGchatbot
-cd IGchatbot
+git clone https://github.com/brucemacvaughn/proof-desk
+cd proof-desk
 open dist/index.html          # or: xdg-open / just double-click it
 ```
 
