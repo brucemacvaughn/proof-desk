@@ -26,6 +26,7 @@ const ScanEngine = (() => {
         ResumeRules: require(path.join(__dirname, 'resume-rules.js')),
         Scoring: require(path.join(__dirname, 'scoring.js')),
         HouseRules: require(path.join(__dirname, 'house-rules.js')),
+        Voice: require(path.join(__dirname, 'voice.js')),
       };
     }
     return {
@@ -33,6 +34,7 @@ const ScanEngine = (() => {
       ResumeRules: typeof ResumeRules !== 'undefined' ? ResumeRules : globalThis.ResumeRules,
       Scoring: typeof Scoring !== 'undefined' ? Scoring : globalThis.Scoring,
       HouseRules: typeof HouseRules !== 'undefined' ? HouseRules : globalThis.HouseRules,
+      Voice: typeof Voice !== 'undefined' ? Voice : globalThis.Voice,
     };
   }
 
@@ -58,7 +60,7 @@ const ScanEngine = (() => {
    * @param {{mode?: 'auto'|'essay'|'resume', context?: 'general'|'technical'}} [options]
    */
   function scan(text, options = {}) {
-    const { AIDetector, ResumeRules, Scoring, HouseRules } = deps();
+    const { AIDetector, ResumeRules, Scoring, HouseRules, Voice } = deps();
     const mode = options.mode && options.mode !== 'auto' ? options.mode : detectMode(text);
 
     // Resumes are fragment-heavy by design. Technical context suppresses the
@@ -98,6 +100,20 @@ const ScanEngine = (() => {
       }
     }
 
+    // Voice comparison. Like house rules, it is computed here and kept out
+    // of the calibration below: a style deviation is not evidence of machine
+    // authorship. The traffic is blocked in both directions — the AI score
+    // is not an input to `compare` either, so neither number can move the
+    // other.
+    let voice = null;
+    if (options.profile) {
+      try {
+        voice = Voice.compare(text, options.profile);
+      } catch (err) {
+        voice = { available: false, score: null, band: null, reason: err.message, findings: [], unavailable: [] };
+      }
+    }
+
     const calibrated = Scoring.calibrate({
       baseScore: prose.score,
       issues: aiIssues,
@@ -119,6 +135,8 @@ const ScanEngine = (() => {
       resumeIssues,
       houseIssues,
       houseError,
+      voice,
+      voiceIssues: voice && voice.available ? voice.findings : [],
       regions: prose.highlight_sentence_for_ai || [],
       sections: resume ? resume.sections : null,
       stats: resume ? { ...prose.stats, ...resume.stats } : prose.stats,
@@ -130,6 +148,11 @@ const ScanEngine = (() => {
     const { AIDetector, ResumeRules } = deps();
     const rank = { critical: 4, high: 3, medium: 2, low: 1 };
     const tagged = [
+      ...(result.voiceIssues || []).map((i) => ({
+        ...i,
+        source: 'voice',
+        label: i.label || 'Voice',
+      })),
       ...(result.houseIssues || []).map((i) => ({
         ...i,
         source: 'house',
@@ -149,7 +172,7 @@ const ScanEngine = (() => {
     ];
     // House findings sort ahead of everything at equal severity — they are
     // the writer's explicit instruction, and they carry the better wording.
-    const sourceRank = { house: 1, resume: 0, prose: 0 };
+    const sourceRank = { house: 2, voice: 1, resume: 0, prose: 0 };
     return tagged
       .sort(
         (a, b) =>

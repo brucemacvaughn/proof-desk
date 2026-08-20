@@ -115,8 +115,7 @@ detector itself is untouched.
 
 ## Voice: the reference corpus
 
-*Phase 2, Stages 1–2 — ingest and fingerprint. The VOICE MATCH score
-(Stage 3) is not built yet.*
+*Phase 2, complete: ingest, fingerprint, and the VOICE MATCH comparison.*
 
 Proof Desk can hold a **reference corpus**: 4–6 samples of your own writing,
 used later to compare a draft against how you actually write.
@@ -219,6 +218,44 @@ words."*
 ```bash
 node scanner/scan.js --fingerprint --corpus my-corpus.json
 ```
+
+## VOICE MATCH
+
+A second score beside the AI-writing one, with its own findings category.
+
+**It never feeds the AI-writing score, and the AI-writing score never feeds
+it.** Same separation as house rules, same reason: a style deviation says
+nothing about machine authorship, and mixing them would corrupt the Phase 0
+calibration. A test recomputes the AI score from prose findings alone and
+requires an exact match.
+
+**Only deviations outside the observed band are flagged.** All five documents
+in the reference corpus — across every register in it — score **100/100 with
+zero findings**. That is the property that matters: if a writer's own work
+gets flagged, they stop reading the findings.
+
+Findings are specific and checkable, never a similarity percentage:
+
+```
+you write at grade 5.3 to 6.8, this draft reads at grade 14.7
+your sentences run 9.6 to 14.7 words, this draft averages 18.7
+you never write "furthermore" across 3,534 words, this draft uses it once
+```
+
+**Unavailable is said out loud.** A metric short of corpus produces no finding
+and is listed under *Voice — not checked* with what it still needs. Silence
+would read as "checked and fine", which is a different claim.
+
+Every point deducted is attributable to a listed finding: the score starts at
+100 and a test asserts `score === 100 - sum(penalties)`, so the number and the
+list can never disagree.
+
+| Score | Means |
+|---|---|
+| 80–100 | Sounds like you |
+| 60–79 | Mostly like you |
+| 35–59 | Drifting from your voice |
+| 0–34 | Doesn't sound like you |
 
 ## The score bands
 
@@ -392,6 +429,7 @@ Use it to sharpen a draft. Don't use it to decide whether someone cheated.
 | `scanner/house-rules.js` | **House rules — the source of truth for the rule set.** |
 | `scanner/corpus.js` | Reference corpus: storage, screening, readiness. |
 | `scanner/fingerprint.js` | Voice profile: bands, per-metric confidence, evidence. |
+| `scanner/voice.js` | VOICE MATCH: band comparison and specific deviations. |
 | `scanner/sync-rules.js` | Regenerates the JSON and skill copies from it. |
 | `scanner/engine.js` | Combines the engines and picks essay vs resume mode. |
 | `scanner/resume-rules.js` | The resume genre layer. |
@@ -407,7 +445,7 @@ Use it to sharpen a draft. Don't use it to decide whether someone cheated.
 Node >= 18. No install step.
 
 ```bash
-npm test          # bands, house rules, corpus, fingerprint, resume rules, fixer, extraction, detector, bundle
+npm test          # bands, house rules, corpus, fingerprint, voice, resume rules, fixer, extraction, detector, bundle
 npm run test:bands # just the score calibration + fixture corpus
 npm run rules:sync # regenerate house-rules.json and the skill copies
 npm run build     # regenerate dist/index.html from scanner/app.html

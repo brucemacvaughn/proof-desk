@@ -85,3 +85,39 @@ a mean the writer never actually writes at flags their own work constantly.
 
 Every metric carries excerpts from the corpus that produced it. If you report
 a number, you can quote the sentences behind it.
+
+## Comparing a draft: VOICE MATCH
+
+Report voice deviations under their own **VOICE** heading, separate from the
+AI-writing findings and from house rules.
+
+**VOICE MATCH never feeds the AI-writing score, and the AI-writing score never
+feeds VOICE MATCH.** They answer different questions. A writer stretching into
+an unfamiliar register is not evidence of a model, and a machine-written draft
+that happens to match their cadence is still machine-written.
+
+Two rules for the findings:
+
+- **Only flag what falls outside the observed band.** Not every difference
+  from the mean. This writer's contraction rate spans 0% in a runbook to 60%
+  in an incident note; an average of 20% would flag both of the real documents
+  that produced it. Forty nitpicks per draft and nobody reads the findings.
+- **Say when a metric was not checked.** A metric short of corpus produces no
+  finding and is reported as unavailable. Staying silent reads as "checked and
+  fine", which is a different and false claim.
+
+Findings are specific and checkable, never a similarity percentage:
+
+    your sentences run 12 to 24 words, this draft averages 31
+    you use contractions in 60% of sentences, this draft 12%
+    you never write "furthermore" across 3,000 words, this draft uses it twice
+
+The score starts at 100 and every point deducted is attributable to a listed
+finding, so the number and the list can never disagree.
+
+| Score | Means |
+|---|---|
+| 80-100 | Sounds like you |
+| 60-79 | Mostly like you |
+| 35-59 | Drifting from your voice |
+| 0-34 | Doesn't sound like you |

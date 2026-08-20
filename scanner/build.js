@@ -24,6 +24,7 @@ const SOURCES = {
   'house-rules': path.join(__dirname, 'house-rules.js'),
   corpus: path.join(__dirname, 'corpus.js'),
   fingerprint: path.join(__dirname, 'fingerprint.js'),
+  voice: path.join(__dirname, 'voice.js'),
   extract: path.join(__dirname, 'extract.js'),
   fixer: path.join(__dirname, 'fixer.js'),
   engine: path.join(__dirname, 'engine.js'),

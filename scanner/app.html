@@ -723,6 +723,16 @@
             <p class="readout-label" id="ai-label">Paste something to start.</p>
           </div>
 
+          <div class="readout" id="voice-block" hidden>
+            <div class="readout-top">
+              <span class="eyebrow">Voice match</span>
+              <span class="readout-num" id="voice-score">—<span class="of">/100</span></span>
+            </div>
+            <div class="meter"><i id="voice-meter" style="width:0%"></i></div>
+            <p class="band" id="voice-band" hidden><span class="band-dot"></span><span id="voice-band-label"></span></p>
+            <p class="readout-label" id="voice-label"></p>
+          </div>
+
           <div class="readout" id="craft-block" hidden>
             <div class="readout-top">
               <span class="eyebrow">Resume craft</span>
@@ -876,6 +886,7 @@
 <script>/*INJECT:house-rules*/</script>
 <script>/*INJECT:corpus*/</script>
 <script>/*INJECT:fingerprint*/</script>
+<script>/*INJECT:voice*/</script>
 <script>/*INJECT:extract*/</script>
 <script>/*INJECT:fixer*/</script>
 <script>/*INJECT:engine*/</script>
@@ -1029,7 +1040,7 @@
 
       let result;
       try {
-        result = ScanEngine.scan(text, { mode, houseRules: rules });
+        result = ScanEngine.scan(text, { mode, houseRules: rules, profile });
       } catch (err) {
         console.error(err);
         return reset('Could not read that — try a shorter passage.');
@@ -1037,6 +1048,7 @@
       last = result;
 
       renderVerdict(result);
+      renderVoice(result);
       renderStats(result);
       const issues = ScanEngine.allIssues(result);
       marks = buildMarks(text, issues);
@@ -1076,6 +1088,7 @@
       $('ai-meter').style.width = '0%';
       $('ai-label').textContent = message || 'Paste something to start.';
       $('craft-block').hidden = true;
+      $('voice-block').hidden = true;
       $('ai-band').hidden = true;
       $('probs').hidden = true;
       markScale(null);
@@ -1123,7 +1136,7 @@
 
     function renderCorpus() {
       const st = Corpus.status(samples);
-      if (typeof renderProfile === 'function' && !$('profile-body').hidden) renderProfile();
+      if (typeof rebuildProfile === 'function') rebuildProfile();
 
       $('corpus-count').textContent = samples.length
         ? `${st.usableCount}/${Corpus.MIN_SAMPLES} · ${st.usableWords}w`
@@ -1286,6 +1299,39 @@
       sayCorpus('Corpus cleared.', 'ok');
     });
 
+    // ── Voice match ──────────────────────────────────────────────
+    //
+    // A second score beside the AI-writing one. It never feeds that score
+    // and is never fed by it: a style deviation says nothing about machine
+    // authorship, and mixing them would corrupt the calibration.
+    function renderVoice(r) {
+      const v = r.voice;
+      const block = $('voice-block');
+      if (!v || !v.available) {
+        // No number at all rather than a meaningless one. The corpus panel
+        // carries the explanation of what is still needed.
+        block.hidden = true;
+        $('voice-band').hidden = true;
+        return;
+      }
+      block.hidden = false;
+      $('voice-score').innerHTML = `${v.score}<span class="of">/100</span>`;
+      const meter = $('voice-meter');
+      meter.style.width = `${100 - v.score}%`;
+      meter.style.background =
+        v.band.tone === 'high' ? 'var(--sev-high)' : v.band.tone === 'mid' ? 'var(--sev-mid)' : 'var(--sev-low)';
+
+      const pill = $('voice-band');
+      pill.hidden = false;
+      pill.dataset.tone = v.band.tone;
+      $('voice-band-label').textContent = v.band.label;
+      $('voice-label').innerHTML =
+        `Against your own writing. <b>Never feeds the AI score.</b>` +
+        (v.unavailable.length
+          ? `<br><span class="dim-conf">${v.unavailable.length} metric(s) not checked — see below</span>`
+          : '');
+    }
+
     // ── Voice profile ────────────────────────────────────────────
     //
     // Stage 2: build and show. Every metric reports its own availability;
@@ -1306,9 +1352,21 @@
       return '';
     }
 
-    function renderProfile() {
-      const usable = Corpus.usableSamples(samples);
-      profile = Fingerprint.build(usable);
+    /**
+     * Recompute the profile. Must run on every corpus change, not only when
+     * the panel is visible: the voice comparison reads `profile`, and gating
+     * this on panel visibility left the page comparing every draft against
+     * an empty profile while showing a confident 100/100.
+     */
+    function rebuildProfile({ rescan = true } = {}) {
+      profile = Fingerprint.build(Corpus.usableSamples(samples));
+      if (!$('profile-body').hidden) paintProfile();
+      if (rescan && typeof run === 'function' && draft.value.trim()) run();
+      return profile;
+    }
+
+    function paintProfile() {
+      if (!profile) profile = Fingerprint.build(Corpus.usableSamples(samples));
 
       $('profile-count').textContent = `${profile.availableMetrics}/${profile.totalMetrics}`;
       $('profile-intro').innerHTML = profile.builtFrom.totalWords
@@ -1358,17 +1416,18 @@
       $('profile-body').hidden = !open;
       $('profile-toggle').setAttribute('aria-expanded', String(open));
       $('profile-toggle').textContent = open ? 'Hide' : 'Show';
-      if (open) renderProfile();
+      if (open) paintProfile();
     });
 
     $('profile-rebuild').addEventListener('click', () => {
-      renderProfile();
+      rebuildProfile();
+      paintProfile();
       $('profile-msg').textContent = `Rebuilt from ${profile.builtFrom.samples} samples.`;
       $('profile-msg').dataset.kind = 'ok';
     });
 
     $('profile-copy').addEventListener('click', async () => {
-      if (!profile) renderProfile();
+      if (!profile) rebuildProfile({ rescan: false });
       try {
         await navigator.clipboard.writeText(Fingerprint.toJSON(profile));
         $('profile-msg').textContent = 'Profile copied.';
@@ -1735,6 +1794,7 @@
 
     // ── Findings ─────────────────────────────────────────────────
     const GROUPS = [
+      ['Voice', (i) => i.source === 'voice'],
       ['House rules', (i) => i.source === 'house'],
       ['Reads as AI', (i) => i.group === 'ai' && i.source === 'resume'],
       ['Resume craft', (i) => i.group === 'craft'],
@@ -1763,10 +1823,23 @@
             `<span class="finding-kind">${esc(issue.label)}</span>` +
             `<span class="finding-line">${issue.line ? 'line ' + issue.line : ''}</span>` +
             '</span>' +
-            `<span class="finding-text">${esc(truncate(issue.text, 90))}</span>` +
+            `<span class="finding-text">${esc(issue.source === 'voice' ? issue.text : truncate(issue.text, 90))}</span>` +
             (issue.suggestion ? `<span class="finding-fix">${esc(issue.suggestion)}</span>` : '') +
             (issue.note ? `<span class="finding-note">${esc(issue.note)}</span>` : '') +
             '</button>';
+        }
+      }
+
+      const v = r.voice;
+      if (v && v.available && v.unavailable.length) {
+        html +=
+          `<div class="group-head"><span class="eyebrow">Voice — not checked</span>` +
+          `<span class="eyebrow">${v.unavailable.length}</span></div>`;
+        for (const u of v.unavailable) {
+          html +=
+            `<div class="finding" data-sev="low" data-locatable="0">` +
+            `<span class="finding-top"><span class="finding-kind">${esc(u.label)}</span></span>` +
+            `<span class="finding-note">${esc(u.reason)}</span></div>`;
         }
       }
 
@@ -1847,8 +1920,8 @@
 
     buildScale();
     renderRules();
+    rebuildProfile({ rescan: false });
     renderCorpus();
-    renderProfile();
 
     // Open on the AI essay so the page explains itself, but stay in Draft:
     // the proof view is read-only, and landing there means a first-time

@@ -31,6 +31,7 @@ const Scoring = require('./scoring.js');
 const HouseRules = require('./house-rules.js');
 const Corpus = require('./corpus.js');
 const Fingerprint = require('./fingerprint.js');
+const Voice = require('./voice.js');
 const os = require('os');
 
 // ═══ Terminal helpers ════════════════════════════════════════════════
@@ -311,6 +312,28 @@ function render(result, { quiet }) {
   out.push(`  ${sc(bold(band.label))} ${dim(`(${band.min}-${band.max})`)}`);
   out.push(`  ${dim(band.blurb)}`);
   out.push(`  ${dim(result.classification)} ${dim(`· ${result.confidence} confidence`)}`);
+  // VOICE MATCH sits beside the AI score and never feeds it.
+  if (result.voice) {
+    out.push('');
+    if (!result.voice.available) {
+      out.push(`  ${bold('Voice match')}      ${dim('unavailable')}`);
+      out.push(`  ${dim(result.voice.reason)}`);
+    } else {
+      const vb = result.voice.band;
+      const vc = vb.tone === 'high' ? red : vb.tone === 'mid' ? yellow : green;
+      out.push(
+        `  ${bold('Voice match')}     ${vc(bold(String(result.voice.score).padStart(3)))}${dim('/100')}  ` +
+          `${bar(100 - result.voice.score)} ${dim('(never feeds the AI score)')}`
+      );
+      out.push(`  ${vc(vb.label)}`);
+      if (result.voice.unavailable.length) {
+        out.push(
+          dim(`  ${result.voice.unavailable.length} metric(s) unavailable — not checked, not "fine"`)
+        );
+      }
+    }
+  }
+
   const houseCount = (result.houseIssues || []).length;
   if (houseCount) {
     out.push('');
@@ -344,6 +367,7 @@ function render(result, { quiet }) {
   if (quiet) return out.join('\n') + '\n';
 
   const groups = [
+    ['Voice', (result.voice && result.voice.available && result.voice.findings) || [], {}],
     ['House rules', result.houseIssues || [], {}],
     ['AI-writing tells', result.resumeIssues.filter((i) => i.group === 'ai'), ResumeRules.TYPE_LABELS],
     ['Resume craft', result.resumeIssues.filter((i) => i.group === 'craft'), ResumeRules.TYPE_LABELS],
@@ -355,13 +379,25 @@ function render(result, { quiet }) {
     out.push('');
     out.push(`  ${bold(title)} ${dim(`(${issues.length})`)}`);
     for (const issue of issues.slice(0, 40)) {
-      const label = issue.type === 'house-rule' ? issue.label : labels[issue.type] || issue.type;
+      const label =
+        issue.type === 'house-rule' || issue.type === 'voice'
+          ? issue.label
+          : labels[issue.type] || issue.type;
       const where = issue.line ? dim(` L${issue.line}`) : '';
-      out.push(`    ${severityMark(issue.severity)} ${cyan(label)}${where}  ${bold(truncate(issue.text, 64))}`);
+      const body = issue.type === 'voice' ? issue.text : truncate(issue.text, 64);
+      out.push(`    ${severityMark(issue.severity)} ${cyan(label)}${where}  ${bold(body)}`);
       if (issue.suggestion) out.push(`      ${dim('→ ' + truncate(issue.suggestion, 92))}`);
       if (issue.note) out.push(`      ${dim('· ' + truncate(issue.note, 92))}`);
     }
     if (issues.length > 40) out.push(dim(`    … and ${issues.length - 40} more`));
+  }
+
+  if (result.voice && result.voice.available && result.voice.unavailable.length) {
+    out.push('');
+    out.push(`  ${bold('Voice — not checked')} ${dim('(needs more corpus)')}`);
+    for (const u of result.voice.unavailable) {
+      out.push(`    ${dim('·')} ${dim(u.label + ': ' + u.reason)}`);
+    }
   }
 
   if (!result.proseIssues.length && !result.resumeIssues.length && !(result.houseIssues || []).length) {
@@ -430,8 +466,16 @@ function main() {
     return corpus ? 0 : 1;
   }
 
+  // Build the profile once and hand it to the scan; the comparison is the
+  // engine's job, not the CLI's.
+  const profile = corpus ? Fingerprint.build(Corpus.usableSamples(corpus.samples)) : null;
+
   const house = loadHouseRules(opts);
-  const result = scan(text, { ...opts, houseRules: house.rules === undefined ? undefined : house.rules.length ? house.rules : false });
+  const result = scan(text, {
+    ...opts,
+    profile,
+    houseRules: house.rules === undefined ? undefined : house.rules.length ? house.rules : false,
+  });
 
   // --fix writes the cleaned draft to stdout and nothing else, so it can be
   // redirected into a file or piped onward. The summary goes to stderr.

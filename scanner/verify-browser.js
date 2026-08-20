@@ -249,6 +249,88 @@ async function readout(page) {
   await page.click('#corpus-toggle');
   await page.waitForTimeout(200);
 
+  // ── Voice match (Stage 3) ───────────────────────────────────────
+  {
+    const Cmod = require('./corpus.js');
+    const rd = (f) => fs.readFileSync(path.join(__dirname, 'samples', f), 'utf8');
+    const rep = (t, n) => Array.from({ length: n }, () => t).join('\n\n');
+    const corpusJson = Cmod.toJSON([
+      { label: 'Solar quote essay', text: rep(rd('human-essay.md'), 6) },
+      { label: 'Postgres runbook', text: rep(rd('fixtures/human-technical.md'), 6) },
+      { label: 'Deploy incident note', text: rep(rd('fixtures/human-short-note.md'), 6) },
+      { label: 'Cover letter to Priya', text: rep(rd('fixtures/human-cover-letter.md'), 6) },
+    ]);
+
+    // No profile yet: the voice readout must not claim anything.
+    await page.fill('#draft', rd('fixtures/ai-cover-letter.md'));
+    await page.waitForTimeout(600);
+    const noProfile = await page.evaluate(() => ({
+      shown: !document.getElementById('voice-block').hidden,
+      label: document.getElementById('voice-label').textContent,
+    }));
+    // A 100/100 against an empty profile would read as "sounds like you"
+    // when it means "nothing was checked". The readout must be absent.
+    check('with no corpus the voice score makes no claim', noProfile.shown === false, noProfile.label);
+
+    // Import a corpus through the UI, as a user would.
+    await page.click('#corpus-toggle');
+    await page.click('#corpus-paste');
+    await page.fill('#corpus-pastebox', corpusJson);
+    await page.click('#corpus-paste');
+    await page.waitForTimeout(1000);
+    await page.click('#corpus-toggle');
+    await page.fill('#draft', rd('fixtures/ai-cover-letter.md'));
+    await page.waitForTimeout(1200);
+
+    const withAI = await page.evaluate(() => ({
+      ai: document.getElementById('ai-score').textContent.trim(),
+      voice: document.getElementById('voice-score').textContent.trim(),
+      band: (document.getElementById('voice-band-label') || {}).textContent,
+      groups: [...document.querySelectorAll('.group-head')].map((g) => g.textContent.replace(/\s+/g, ' ').trim()),
+      findings: [...document.querySelectorAll('.finding-text')]
+        .map((e) => e.textContent.trim())
+        .filter((t) => /this draft/.test(t)),
+    }));
+    // The profile must be rebuilt on corpus import, not only when the
+    // profile panel happens to be open — that bug showed a confident
+    // 100/100 against an empty profile.
+    check('importing a corpus rebuilds the profile immediately', /^\d+\/100$/.test(withAI.voice) && withAI.voice !== '100/100', withAI.voice);
+    check('an AI draft scores low on voice match', parseInt(withAI.voice, 10) < 60, withAI.voice);
+    check('the voice band is named', /sound like you|Drifting/i.test(withAI.band || ''), withAI.band);
+    check('VOICE is its own findings group', withAI.groups.some((g) => /^Voice\d/.test(g)), withAI.groups.join(' | '));
+    check('voice findings state a range and the draft value', withAI.findings.length >= 3, `${withAI.findings.length}`);
+    check(
+      'the absence finding reads as specified',
+      withAI.findings.some((t) => /you never write "furthermore" across \d+ words, this draft uses it/.test(t)),
+      withAI.findings.join(' | ').slice(0, 160)
+    );
+    check(
+      'no finding reports a similarity percentage',
+      !withAI.findings.some((t) => /similarity|% match/i.test(t))
+    );
+
+    // The writer's own work, in a register the corpus contains, must be clean.
+    await page.fill('#draft', rd('fixtures/human-technical.md'));
+    await page.waitForTimeout(1200);
+    const own = await page.evaluate(() => ({
+      voice: document.getElementById('voice-score').textContent.trim(),
+      band: (document.getElementById('voice-band-label') || {}).textContent,
+      findings: [...document.querySelectorAll('.finding-text')].filter((e) => /this draft/.test(e.textContent)).length,
+    }));
+    check("the writer's own writing scores 100 on voice match", own.voice === '100/100', own.voice);
+    check("the writer's own writing produces no voice findings", own.findings === 0, `${own.findings}`);
+
+    // Separation: the AI score must be identical with and without a profile.
+    const aiWith = await page.evaluate(() => document.getElementById('ai-score').textContent.trim());
+    await page.click('#corpus-toggle');
+    await page.click('#corpus-clear');
+    await page.waitForTimeout(800);
+    await page.click('#corpus-toggle');
+    await page.waitForTimeout(600);
+    const aiWithout = await page.evaluate(() => document.getElementById('ai-score').textContent.trim());
+    check('the AI score is unchanged by the voice profile', aiWith === aiWithout, `${aiWith} vs ${aiWithout}`);
+  }
+
   // ── House rules ─────────────────────────────────────────────────
   await page.fill(
     '#draft',
