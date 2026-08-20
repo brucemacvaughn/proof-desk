@@ -28,6 +28,8 @@ const ResumeRules = require('./resume-rules.js');
 const ScanEngine = require('./engine.js');
 const Fixer = require('./fixer.js');
 const Scoring = require('./scoring.js');
+const HouseRules = require('./house-rules.js');
+const os = require('os');
 
 // ═══ Terminal helpers ════════════════════════════════════════════════
 
@@ -66,6 +68,8 @@ function parseArgs(argv) {
     else if (a === '--context') opts.context = argv[++i];
     else if (a === '--fail-over') opts.failOver = Number(argv[++i]);
     else if (a === '--fix') opts.fix = true;
+    else if (a === '--rules') opts.rulesPath = argv[++i];
+    else if (a === '--no-house') opts.noHouse = true;
     else if (a === '--help' || a === '-h') opts.help = true;
     else if (!a.startsWith('-')) opts.file = a;
   }
@@ -81,12 +85,60 @@ ${bold('scan')} — check text for AI-writing patterns
 Options
   --mode <auto|essay|resume>   what kind of document this is (default: auto)
   --context <general|technical> suppress flags legitimate in code-adjacent prose
+  --rules <file.json>          house rules to use (see resolution order below)
+  --no-house                   skip house rules entirely
   --fix                        print the draft with the definite fixes applied
   --fail-over <n>              exit 1 when the AI score is above n
   --json                       machine-readable output
   --quiet, -q                  scores only, no issue list
   --help, -h                   this text
+
+House rules are looked up in this order, first hit wins:
+  --rules <file>
+  $PROOF_DESK_RULES
+  ./.proof-desk-rules.json
+  ~/.proof-desk/house-rules.json
+  the built-in defaults
 `;
+
+// ═══ House rules ════════════════════════════════════════════════════
+//
+// Resolved from the first path that exists, so one file can serve the CLI,
+// a project, and a machine. The web page exports the same JSON.
+
+function resolveRulesPath(explicit) {
+  const candidates = [
+    explicit,
+    process.env.PROOF_DESK_RULES,
+    path.join(process.cwd(), '.proof-desk-rules.json'),
+    path.join(os.homedir(), '.proof-desk', 'house-rules.json'),
+  ].filter(Boolean);
+  return candidates.find((p) => {
+    try {
+      return fs.statSync(p).isFile();
+    } catch {
+      return false;
+    }
+  });
+}
+
+function loadHouseRules(opts) {
+  if (opts.noHouse) return { rules: [], source: 'disabled' };
+  const found = resolveRulesPath(opts.rulesPath);
+  if (!found) return { rules: undefined, source: 'built-in defaults' };
+  try {
+    return { rules: HouseRules.fromJSON(fs.readFileSync(found, 'utf8')), source: found };
+  } catch (err) {
+    // An explicitly named file that will not parse is a hard error; a stray
+    // one found by search should not stop a scan.
+    if (opts.rulesPath) {
+      process.stderr.write(`scan: cannot read rules from ${found}: ${err.message}\n`);
+      process.exit(2);
+    }
+    process.stderr.write(`scan: ignoring ${found}: ${err.message}\n`);
+    return { rules: undefined, source: 'built-in defaults' };
+  }
+}
 
 // ═══ Scanning ═══════════════════════════════════════════════════════
 //
@@ -113,6 +165,15 @@ function render(result, { quiet }) {
   out.push(`  ${sc(bold(band.label))} ${dim(`(${band.min}-${band.max})`)}`);
   out.push(`  ${dim(band.blurb)}`);
   out.push(`  ${dim(result.classification)} ${dim(`· ${result.confidence} confidence`)}`);
+  const houseCount = (result.houseIssues || []).length;
+  if (houseCount) {
+    out.push('');
+    out.push(
+      `  ${bold('House rules')}      ${red(bold(String(houseCount).padStart(3)))} ${dim('broken')} ` +
+        `${dim('(not counted in the AI score)')}`
+    );
+  }
+  if (result.houseError) out.push(`  ${red('house rules: ' + result.houseError)}`);
   if (result.calibration) {
     const cal = result.calibration;
     out.push(
@@ -137,6 +198,7 @@ function render(result, { quiet }) {
   if (quiet) return out.join('\n') + '\n';
 
   const groups = [
+    ['House rules', result.houseIssues || [], {}],
     ['AI-writing tells', result.resumeIssues.filter((i) => i.group === 'ai'), ResumeRules.TYPE_LABELS],
     ['Resume craft', result.resumeIssues.filter((i) => i.group === 'craft'), ResumeRules.TYPE_LABELS],
     ['Prose patterns', result.proseIssues, AIDetector.TYPE_LABELS || {}],
@@ -147,15 +209,16 @@ function render(result, { quiet }) {
     out.push('');
     out.push(`  ${bold(title)} ${dim(`(${issues.length})`)}`);
     for (const issue of issues.slice(0, 40)) {
-      const label = labels[issue.type] || issue.type;
+      const label = issue.type === 'house-rule' ? issue.label : labels[issue.type] || issue.type;
       const where = issue.line ? dim(` L${issue.line}`) : '';
       out.push(`    ${severityMark(issue.severity)} ${cyan(label)}${where}  ${bold(truncate(issue.text, 64))}`);
       if (issue.suggestion) out.push(`      ${dim('→ ' + truncate(issue.suggestion, 92))}`);
+      if (issue.note) out.push(`      ${dim('· ' + truncate(issue.note, 92))}`);
     }
     if (issues.length > 40) out.push(dim(`    … and ${issues.length - 40} more`));
   }
 
-  if (!result.proseIssues.length && !result.resumeIssues.length) {
+  if (!result.proseIssues.length && !result.resumeIssues.length && !(result.houseIssues || []).length) {
     out.push('');
     out.push(`  ${green('Nothing flagged.')} ${dim('Reads as human.')}`);
   }
@@ -208,7 +271,8 @@ function main() {
     return 2;
   }
 
-  const result = scan(text, opts);
+  const house = loadHouseRules(opts);
+  const result = scan(text, { ...opts, houseRules: house.rules === undefined ? undefined : house.rules.length ? house.rules : false });
 
   // --fix writes the cleaned draft to stdout and nothing else, so it can be
   // redirected into a file or piped onward. The summary goes to stderr.

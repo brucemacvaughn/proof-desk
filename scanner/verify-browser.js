@@ -171,6 +171,96 @@ async function readout(page) {
   const bad = await page.evaluate(() => document.getElementById('hint').textContent);
   check('an unreadable PDF explains what to do', /readable text|scanned|OCR/i.test(bad), bad);
 
+  // ── House rules ─────────────────────────────────────────────────
+  await page.fill(
+    '#draft',
+    'We stand at a crossroads. The intersection of design and engineering is a ' +
+      'platinum opportunity, one we should leverage. I want to delve into the ' +
+      'landscape, building on my two years coding and the 6,000 users we onboarded ' +
+      'last year — a number worth repeating to anyone who will listen today.'
+  );
+  await page.waitForTimeout(600);
+
+  const house = await page.evaluate(() => {
+    const groups = [...document.querySelectorAll('.group-head')].map((g) =>
+      g.textContent.trim()
+    );
+    return {
+      groups,
+      houseFindings: [...document.querySelectorAll('.finding')].filter((f) =>
+        f.querySelector('.finding-note')
+      ).length,
+      firstGroup: groups[0] || '',
+      count: document.getElementById('rules-count').textContent,
+    };
+  });
+  check('HOUSE RULES is its own findings group', /House rules/i.test(house.firstGroup), house.firstGroup);
+  check('house findings render with their note', house.houseFindings >= 5, `${house.houseFindings}`);
+  check('the rules panel reports the active count', /10 active/.test(house.count), house.count);
+
+  // The score must not move when the rules are switched off.
+  const withRules = await page.evaluate(() => document.getElementById('ai-score').textContent.trim());
+  await page.click('#rules-toggle');
+  await page.waitForTimeout(200);
+  const editorOpen = await page.evaluate(() => !document.getElementById('rules-editor').hidden);
+  check('the editor opens', editorOpen === true);
+
+  // Delete one rule and confirm it stops firing.
+  const before = await page.evaluate(() => document.querySelectorAll('.rule-row').length);
+  await page.click('.rule-row [data-del="0"]');
+  await page.waitForTimeout(500);
+  const after = await page.evaluate(() => document.querySelectorAll('.rule-row').length);
+  check('deleting a rule removes it', after === before - 1, `${before} -> ${after}`);
+
+  // Add one and confirm it fires.
+  await page.fill('#rule-pattern', 'onboarded');
+  await page.fill('#rule-replacement', 'signed up');
+  await page.fill('#rule-note', 'jargon');
+  await page.click('#rule-add');
+  await page.waitForTimeout(600);
+  const added = await page.evaluate(() => ({
+    rows: document.querySelectorAll('.rule-row').length,
+    fires: [...document.querySelectorAll('.finding-text')].some((e) =>
+      /onboarded/.test(e.textContent)
+    ),
+  }));
+  check('adding a rule persists it', added.rows === after + 1, `${added.rows}`);
+  check('a newly added rule fires immediately', added.fires === true);
+
+  // Export / import round trip through the paste box.
+  const exported = await page.evaluate(() => HouseRules.toJSON(
+    HouseRules.fromJSON(localStorage.getItem('proof-desk:house-rules:v1'))
+  ));
+  check('rules persist to localStorage as importable JSON', exported.includes('proof-desk/house-rules'));
+
+  await page.click('#rules-reset');
+  await page.waitForTimeout(500);
+  const reset = await page.evaluate(() => document.querySelectorAll('.rule-row').length);
+  check('reset restores the shipped rules', reset === 10, `${reset} rows`);
+
+  await page.click('#rules-paste');
+  await page.fill('#rules-pastebox', '[{"pattern":"synergy","note":"no"}]');
+  await page.click('#rules-paste');
+  await page.waitForTimeout(500);
+  const imported = await page.evaluate(() => ({
+    rows: document.querySelectorAll('.rule-row').length,
+    msg: document.getElementById('rules-msg').textContent,
+  }));
+  check('pasting JSON imports a rule set', imported.rows === 1, `${imported.rows} rows: ${imported.msg}`);
+
+  await page.click('#rules-paste');
+  await page.fill('#rules-pastebox', 'this is not json');
+  await page.click('#rules-paste');
+  await page.waitForTimeout(400);
+  const badMsg = await page.evaluate(() => document.getElementById('rules-msg').textContent);
+  check('a bad paste explains itself', /not valid JSON/i.test(badMsg), badMsg);
+
+  await page.click('#rules-reset');
+  await page.waitForTimeout(400);
+  await page.click('#rules-toggle');
+  await page.click('[data-sample="ai-essay"]');
+  await page.waitForTimeout(600);
+
   // ── Cleaned view ────────────────────────────────────────────────
   await page.click('[data-sample="ai-essay"]');
   await page.waitForTimeout(600);
@@ -196,7 +286,16 @@ async function readout(page) {
     'mid-sentence capitalization'
   );
 
-  // A clean human draft must come out of the fixer untouched.
+  // A clean human draft must come out of the AI fixer untouched. House rules
+  // are cleared first: they legitimately rewrite human prose (this writer
+  // bans the em dash, and the essay contains one), which is a different
+  // claim from the one this check is making.
+  await page.click('#rules-toggle');
+  await page.click('#rules-paste');
+  await page.fill('#rules-pastebox', '[]');
+  await page.click('#rules-paste');
+  await page.waitForTimeout(300);
+  await page.click('#rules-toggle');
   await page.click('[data-sample="human-essay"]');
   await page.waitForTimeout(600);
   await page.click('#view-clean');
@@ -205,7 +304,13 @@ async function readout(page) {
     same: document.getElementById('clean').value === document.getElementById('draft').value,
     hint: document.getElementById('hint').textContent,
   }));
-  check('human prose is returned unchanged by the fixer', untouched.same === true, untouched.hint);
+  check('human prose is returned unchanged by the AI fixer', untouched.same === true, untouched.hint);
+
+  // Restore the shipped rules so later checks see the default state.
+  await page.click('#rules-toggle');
+  await page.click('#rules-reset');
+  await page.waitForTimeout(300);
+  await page.click('#rules-toggle');
 
   // ── Human sample scores clean ───────────────────────────────────
   await page.click('[data-sample="human-resume"]');

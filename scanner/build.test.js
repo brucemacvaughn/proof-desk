@@ -36,6 +36,7 @@ test('both engines and the orchestrator are inlined', () => {
   assert.ok(html.includes('const Fixer'), 'fixer missing');
   assert.ok(html.includes('const Extract'), 'extractor missing');
   assert.ok(html.includes('const Scoring'), 'scoring/bands missing');
+  assert.ok(html.includes('const HouseRules'), 'house rules missing');
 });
 
 test('samples are inlined', () => {
@@ -88,7 +89,7 @@ test('every script block in the bundle compiles', () => {
   // `new Function` compiles without executing — which is exactly what catches
   // a syntax error introduced by a bad injection.
   const blocks = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
-  assert.ok(blocks.length >= 7, `expected 7 script blocks, got ${blocks.length}`);
+  assert.ok(blocks.length >= 8, `expected 8 script blocks, got ${blocks.length}`);
   blocks.forEach((code, i) => {
     assert.doesNotThrow(() => new Function(code), `script block ${i} has a syntax error`);
   });
@@ -106,9 +107,10 @@ test('the built page evaluates its engines without a DOM', () => {
       b.includes('const Fixer') ||
       b.includes('const Extract') ||
       b.includes('const Scoring') ||
+      b.includes('const HouseRules') ||
       b.includes('const ScanEngine')
   );
-  assert.strictEqual(engineBlocks.length, 6, `expected 6 engine blocks, got ${engineBlocks.length}`);
+  assert.strictEqual(engineBlocks.length, 7, `expected 7 engine blocks, got ${engineBlocks.length}`);
 
   const sandbox = { module: undefined, console };
   vm.createContext(sandbox);
@@ -141,6 +143,14 @@ test('the built page evaluates its engines without a DOM', () => {
     sandbox
   );
   assert.strictEqual(banded.band.id, 'machine', `bundled AI essay scored ${banded.aiScore}`);
+
+  // The page must ship byte-identical rules to the CLI and the skill.
+  const bundledRules = vm.runInContext('HouseRules.toJSON(HouseRules.DEFAULT_RULES)', sandbox);
+  assert.strictEqual(
+    bundledRules.trim(),
+    require('fs').readFileSync(require('path').join(__dirname, '..', 'house-rules.json'), 'utf8').trim(),
+    'bundled house rules differ from house-rules.json'
+  );
 
   assert.ok(fixed.applied > 0, 'bundled fixer applied nothing');
   assert.ok(!/Moreover/.test(fixed.text), `bundled fixer left filler in: ${fixed.text}`);

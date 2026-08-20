@@ -1,0 +1,66 @@
+{
+  "format": "proof-desk/house-rules",
+  "version": 1,
+  "rules": [
+    {
+      "pattern": "—",
+      "label": "em dash",
+      "match": "literal",
+      "replacement": ",",
+      "note": "Not how I punctuate"
+    },
+    {
+      "pattern": "intersection",
+      "replacement": "(rewrite)",
+      "note": "Overused, means nothing"
+    },
+    {
+      "pattern": "crossroads",
+      "replacement": "(rewrite)",
+      "note": "Overused, means nothing"
+    },
+    {
+      "pattern": "platinum",
+      "replacement": "(remove)",
+      "note": "Not a claim I make"
+    },
+    {
+      "pattern": "(?<!\\b(?:the|a|an|his|her|their|its|our|my|your|financial|operating|market|more|less|no|any|some|enough|negative|positive)\\s)\\bleverag(?:e|es|ed|ing)\\b",
+      "label": "leverage (as verb)",
+      "match": "regex",
+      "replacement": "use",
+      "note": "Corporate"
+    },
+    {
+      "pattern": "\\bdelv(?:e|es|ed|ing)\\b",
+      "label": "delve",
+      "match": "regex",
+      "replacement": "(rewrite)",
+      "note": "AI tell"
+    },
+    {
+      "pattern": "robust",
+      "replacement": "strong, solid",
+      "note": "AI tell"
+    },
+    {
+      "pattern": "landscape",
+      "replacement": "(rewrite)",
+      "note": "AI tell"
+    },
+    {
+      "pattern": "\\b6[,.]?000\\b|\\b6k\\b",
+      "label": "6,000",
+      "match": "regex",
+      "replacement": "thousands",
+      "note": "Never use the number"
+    },
+    {
+      "pattern": "\\btwo years\\b(?:\\s+(?:of|doing))?\\s+(?:coding|programming|software|engineering|development|dev)\\b",
+      "label": "two years coding",
+      "match": "regex",
+      "replacement": "three years",
+      "note": "Recurring factual error"
+    }
+  ]
+}

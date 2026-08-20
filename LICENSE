@@ -26,3 +26,7 @@ This repository vendors the avoid-ai-writing skill and its prose detection
 engine under .claude/skills/avoid-ai-writing/, which is Copyright (c) Conor
 Bronsdon and separately MIT licensed. Its license is retained at
 .claude/skills/avoid-ai-writing/LICENSE and applies to that directory.
+
+The detector and its tests are unmodified. SKILL.md carries one added block,
+fenced between the markers PROOF-DESK:HOUSE-RULES:BEGIN and :END and generated
+by scanner/sync-rules.js, plus a sibling HOUSE-RULES.md.

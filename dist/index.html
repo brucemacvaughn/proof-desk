@@ -433,6 +433,62 @@
   .stat dt { font-family: var(--mono); font-size: .625rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 .1875rem; }
   .stat dd { margin: 0; font-family: var(--mono); font-size: var(--step-0); font-variant-numeric: tabular-nums; }
 
+  /* ── House rules editor ──────────────────────────────────────── */
+  .rule-tools { display: flex; align-items: center; gap: .5rem; }
+  .rules-intro { margin: 0; padding: .75rem .875rem 0; font-size: var(--step--1); color: var(--ink-2); }
+  .rule-list { max-height: 15rem; overflow-y: auto; margin-top: .625rem; }
+
+  .rule-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: .375rem .5rem;
+    padding: .5rem .875rem;
+    border-top: 1px solid var(--rule);
+    align-items: start;
+  }
+
+  .rule-row.is-off { opacity: .45; }
+  .rule-pat { font-family: var(--mono); font-size: var(--step--1); word-break: break-word; }
+  .rule-meta { grid-column: 1 / -1; font-size: .6875rem; color: var(--ink-2); }
+  .rule-meta .arrow { color: var(--ink-3); }
+  .rule-row .btn { padding: .1875rem .4375rem; font-size: .6875rem; }
+  .rule-actions { display: flex; gap: .25rem; }
+
+  .rule-add, .rule-io {
+    display: flex;
+    gap: .375rem;
+    padding: .625rem .875rem;
+    border-top: 1px solid var(--rule);
+    flex-wrap: wrap;
+  }
+
+  .rule-add input {
+    flex: 1 1 7rem;
+    min-width: 0;
+    padding: .3125rem .5rem;
+    border: 1px solid var(--rule-strong);
+    border-radius: 6px;
+    background: var(--surface);
+    font-size: var(--step--1);
+  }
+
+  #rules-pastebox {
+    width: 100%;
+    min-height: 7rem;
+    border: 0;
+    border-top: 1px solid var(--rule);
+    padding: .625rem .875rem;
+    font-family: var(--mono);
+    font-size: .6875rem;
+    background: var(--surface-2);
+    color: var(--ink);
+    resize: vertical;
+  }
+
+  .rules-msg { margin: 0; padding: 0 .875rem .625rem; font-size: var(--step--1); min-height: 1.2em; }
+  .rules-msg[data-kind="err"] { color: var(--sev-high); }
+  .rules-msg[data-kind="ok"] { color: var(--sev-low); }
+
   /* ── Findings ────────────────────────────────────────────────── */
   .findings { max-height: min(30rem, 60vh); overflow-y: auto; }
 
@@ -474,6 +530,8 @@
   .finding-text { display: block; font-family: var(--serif); font-size: var(--step-0); margin: .1875rem 0 .1875rem; }
   .finding-fix { display: block; font-size: var(--step--1); color: var(--ink-2); line-height: 1.45; }
   .finding-fix::before { content: "→ "; color: var(--ink-3); }
+  .finding-note { display: block; font-size: .6875rem; color: var(--ink-3); margin-top: .125rem; }
+  .finding-note::before { content: "· "; }
 
   .empty { padding: 2rem 1rem; text-align: center; color: var(--ink-2); font-size: var(--step--1); }
   .empty strong { display: block; font-family: var(--serif); font-size: var(--step-2); color: var(--ink); margin-bottom: .25rem; font-weight: 500; }
@@ -604,6 +662,39 @@
           </div>
         </div>
         <dl class="stats" id="stats"></dl>
+      </section>
+
+      <section class="panel" aria-label="House rules">
+        <div class="panel-head">
+          <span class="eyebrow">House rules</span>
+          <div class="rule-tools">
+            <span class="eyebrow" id="rules-count">0</span>
+            <button type="button" class="btn" id="rules-toggle" aria-expanded="false">Edit</button>
+          </div>
+        </div>
+        <div id="rules-editor" hidden>
+          <p class="rules-intro">
+            Your own standing bans. These are reported separately and never move the AI score —
+            a style preference is not evidence a machine wrote something.
+          </p>
+          <div class="rule-list" id="rule-list"></div>
+          <div class="rule-add">
+            <input type="text" id="rule-pattern" placeholder="word or phrase" aria-label="Pattern">
+            <input type="text" id="rule-replacement" placeholder="replacement (or (rewrite))" aria-label="Replacement">
+            <input type="text" id="rule-note" placeholder="why" aria-label="Note">
+            <button type="button" class="btn btn-primary" id="rule-add">Add</button>
+          </div>
+          <div class="rule-io">
+            <button type="button" class="btn" id="rules-copy">Copy JSON</button>
+            <button type="button" class="btn" id="rules-download">Download</button>
+            <button type="button" class="btn" id="rules-import">Import file</button>
+            <input type="file" id="rules-file" accept=".json,application/json" hidden>
+            <button type="button" class="btn" id="rules-paste">Paste JSON</button>
+            <button type="button" class="btn" id="rules-reset">Reset</button>
+          </div>
+          <textarea id="rules-pastebox" hidden placeholder="Paste an exported rule set here, then press Import" aria-label="Paste rule JSON"></textarea>
+          <p class="rules-msg" id="rules-msg"></p>
+        </div>
       </section>
 
       <section class="panel" aria-label="Findings">
@@ -3663,6 +3754,346 @@ const Scoring = (() => {
 
 </script>
 <script>/**
+ * House rules — the writer's own standing bans, checked alongside the AI
+ * detectors and reported in their own category.
+ *
+ * ── Why these are separate from the AI score ────────────────────────
+ *
+ * A house rule says nothing about machine authorship. "platinum" is a claim
+ * this author does not make; "6,000" is a number they never use; "two years
+ * coding" is a recurring factual error. None of that is evidence a model
+ * wrote the text, so house findings are counted and displayed on their own
+ * and are deliberately kept OUT of the density channel in scoring.js. Folding
+ * them in would let a personal style preference move a document from "reads
+ * as human" to "reads as machine-written", which is a different claim than
+ * the score is allowed to make.
+ *
+ * Some rules overlap the detector's own vocabulary (delve, robust,
+ * landscape). That is intentional: the house rule states the writer's reason
+ * and their preferred replacement, which the generic table cannot. The UI
+ * marks the span once, house rule first.
+ *
+ * ── Match modes ─────────────────────────────────────────────────────
+ *
+ *   word     (default) whole-word, case-insensitive. "robust" does not fire
+ *            inside "robustness".
+ *   literal  exact substring, no word boundaries. For punctuation and
+ *            anything that is not made of word characters — an em dash has
+ *            no \b to anchor to.
+ *   regex    full expression, for rules that need morphology or context.
+ *
+ * ── Replacement directives ──────────────────────────────────────────
+ *
+ * A replacement of "(rewrite)" or "(remove)" is an instruction to the writer,
+ * not literal text to substitute. The fixer refuses to auto-apply them; a
+ * real replacement string it will apply.
+ *
+ * Zero dependencies. Node and browser; self-registers as global `HouseRules`.
+ */
+
+const HouseRules = (() => {
+  /** Replacements that are instructions rather than substitutions. */
+  const DIRECTIVES = ['(rewrite)', '(remove)', '(cut)'];
+
+  /** Import limits. A pasted rule set is untrusted input. */
+  const MAX_RULES = 500;
+  const MAX_PATTERN = 200;
+  const MAX_MATCHES_PER_RULE = 200;
+
+  /**
+   * The seeded set. These are one writer's real standing rules, kept here as
+   * the shipped default; the page, the CLI and the skill all start from this
+   * list and any of them can replace it wholesale.
+   */
+  const DEFAULT_RULES = [
+    {
+      id: 'em-dash',
+      label: 'em dash',
+      pattern: '—',
+      match: 'literal',
+      replacement: ',',
+      note: 'Not how I punctuate',
+    },
+    {
+      id: 'intersection',
+      pattern: 'intersection',
+      replacement: '(rewrite)',
+      note: 'Overused, means nothing',
+    },
+    {
+      id: 'crossroads',
+      pattern: 'crossroads',
+      replacement: '(rewrite)',
+      note: 'Overused, means nothing',
+    },
+    {
+      id: 'platinum',
+      pattern: 'platinum',
+      replacement: '(remove)',
+      note: 'Not a claim I make',
+    },
+    {
+      id: 'leverage-verb',
+      label: 'leverage (as verb)',
+      // Verb use only. An article, possessive or qualifier in front almost
+      // always marks the noun ("the leverage", "financial leverage"), which
+      // is a legitimate word this rule should leave alone.
+      pattern:
+        '(?<!\\b(?:the|a|an|his|her|their|its|our|my|your|financial|operating|market|more|less|no|any|some|enough|negative|positive)\\s)\\bleverag(?:e|es|ed|ing)\\b',
+      match: 'regex',
+      replacement: 'use',
+      note: 'Corporate',
+    },
+    {
+      id: 'delve',
+      label: 'delve',
+      pattern: '\\bdelv(?:e|es|ed|ing)\\b',
+      match: 'regex',
+      replacement: '(rewrite)',
+      note: 'AI tell',
+    },
+    {
+      id: 'robust',
+      pattern: 'robust',
+      replacement: 'strong, solid',
+      note: 'AI tell',
+    },
+    {
+      id: 'landscape',
+      pattern: 'landscape',
+      replacement: '(rewrite)',
+      note: 'AI tell',
+    },
+    {
+      id: 'six-thousand',
+      label: '6,000',
+      // Written either way, and as "6k".
+      pattern: '\\b6[,.]?000\\b|\\b6k\\b',
+      match: 'regex',
+      replacement: 'thousands',
+      note: 'Never use the number',
+    },
+    {
+      id: 'two-years-coding',
+      label: 'two years coding',
+      pattern:
+        '\\btwo years\\b(?:\\s+(?:of|doing))?\\s+(?:coding|programming|software|engineering|development|dev)\\b',
+      match: 'regex',
+      replacement: 'three years',
+      note: 'Recurring factual error',
+    },
+  ];
+
+  // ═══ Validation ════════════════════════════════════════════════════
+
+  const isDirective = (replacement) =>
+    !!replacement && DIRECTIVES.includes(String(replacement).trim().toLowerCase());
+
+  function escapeRe(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  /** Slug for a rule with no explicit id, so findings stay addressable. */
+  function slug(s) {
+    return String(s)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 40) || 'rule';
+  }
+
+  /**
+   * Normalize one entry, or throw with a message worth showing a user.
+   * Everything except `pattern` is optional.
+   */
+  function normalizeRule(raw, index = 0) {
+    if (!raw || typeof raw !== 'object') {
+      throw new Error(`Rule ${index + 1} is not an object.`);
+    }
+    const pattern = typeof raw.pattern === 'string' ? raw.pattern.trim() : '';
+    if (!pattern) throw new Error(`Rule ${index + 1} has no pattern.`);
+    if (pattern.length > MAX_PATTERN) {
+      throw new Error(`Rule ${index + 1} pattern is longer than ${MAX_PATTERN} characters.`);
+    }
+
+    const match = ['word', 'literal', 'regex'].includes(raw.match) ? raw.match : 'word';
+    const rule = {
+      id: typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : slug(raw.label || pattern),
+      label: typeof raw.label === 'string' && raw.label.trim() ? raw.label.trim() : pattern,
+      pattern,
+      match,
+      replacement: typeof raw.replacement === 'string' ? raw.replacement.trim() : '',
+      note: typeof raw.note === 'string' ? raw.note.trim() : '',
+      severity: ['high', 'medium', 'low'].includes(raw.severity) ? raw.severity : 'high',
+      caseSensitive: raw.caseSensitive === true,
+      enabled: raw.enabled !== false,
+    };
+
+    // Compile now so a bad expression is reported at edit time, not mid-scan.
+    try {
+      compile(rule);
+    } catch (err) {
+      throw new Error(`Rule ${index + 1} ("${rule.label}") is not a valid pattern: ${err.message}`);
+    }
+    return rule;
+  }
+
+  /** @returns {Array} normalized rules; throws on the first invalid entry. */
+  function normalize(rules) {
+    if (!Array.isArray(rules)) throw new Error('Rules must be a list.');
+    if (rules.length > MAX_RULES) throw new Error(`Too many rules (limit ${MAX_RULES}).`);
+    const out = rules.map(normalizeRule);
+
+    const seen = new Set();
+    for (const rule of out) {
+      let id = rule.id;
+      let n = 2;
+      while (seen.has(id)) id = `${rule.id}-${n++}`;
+      rule.id = id;
+      seen.add(id);
+    }
+    return out;
+  }
+
+  function compile(rule) {
+    const flags = rule.caseSensitive ? 'g' : 'gi';
+    if (rule.match === 'regex') return new RegExp(rule.pattern, flags);
+    if (rule.match === 'literal') return new RegExp(escapeRe(rule.pattern), flags);
+
+    // Word mode. \b only anchors against word characters, so a pattern that
+    // starts or ends with punctuation gets no boundary on that side —
+    // otherwise "—" in word mode could never match anything.
+    const body = escapeRe(rule.pattern).replace(/\\?\s+/g, '\\s+');
+    const lead = /^[A-Za-z0-9_]/.test(rule.pattern) ? '\\b' : '';
+    const tail = /[A-Za-z0-9_]$/.test(rule.pattern) ? '\\b' : '';
+    return new RegExp(lead + body + tail, flags);
+  }
+
+  // ═══ Checking ══════════════════════════════════════════════════════
+
+  /**
+   * @param {string} text
+   * @param {Array} [rules] normalized or raw; defaults to DEFAULT_RULES
+   * @returns {Array} findings, shaped like the other engines' issues
+   */
+  function check(text, rules = DEFAULT_RULES) {
+    const src = String(text || '');
+    if (!src) return [];
+    const list = normalize(rules).filter((r) => r.enabled);
+    const findings = [];
+
+    for (const rule of list) {
+      const re = compile(rule);
+      let m;
+      let guard = 0;
+      re.lastIndex = 0;
+      while ((m = re.exec(src)) !== null) {
+        if (guard++ >= MAX_MATCHES_PER_RULE) break;
+        // A zero-length match would spin forever.
+        if (m[0].length === 0) {
+          re.lastIndex += 1;
+          continue;
+        }
+        findings.push({
+          type: 'house-rule',
+          group: 'house',
+          ruleId: rule.id,
+          text: m[0],
+          label: rule.label,
+          severity: rule.severity,
+          suggestion: rule.replacement || '',
+          note: rule.note,
+          directive: isDirective(rule.replacement),
+          start: m.index,
+          end: m.index + m[0].length,
+          line: src.slice(0, m.index).split('\n').length,
+        });
+      }
+    }
+
+    // Deduplicate by (rule, matched text) the way the other engines do, so a
+    // word banned once is one row in the findings list however often it
+    // appears. Every occurrence is kept on `spans`: the list wants one
+    // entry, but the fixer has to repair all of them, and collapsing them
+    // meant only the first em dash in a paragraph was ever replaced.
+    const byKey = new Map();
+    for (const f of findings.sort((a, b) => a.start - b.start)) {
+      const key = `${f.ruleId}::${f.text.toLowerCase()}`;
+      const existing = byKey.get(key);
+      if (existing) {
+        existing.spans.push({ start: f.start, end: f.end });
+        existing.count += 1;
+        continue;
+      }
+      byKey.set(key, { ...f, spans: [{ start: f.start, end: f.end }], count: 1 });
+    }
+    return [...byKey.values()];
+  }
+
+  // ═══ Import / export ═══════════════════════════════════════════════
+
+  const FORMAT = 'proof-desk/house-rules';
+  const VERSION = 1;
+
+  /** Portable JSON. Stable key order so exports diff cleanly. */
+  function toJSON(rules = DEFAULT_RULES, { pretty = true } = {}) {
+    const doc = {
+      format: FORMAT,
+      version: VERSION,
+      rules: normalize(rules).map((r) => {
+        const out = { pattern: r.pattern };
+        if (r.label !== r.pattern) out.label = r.label;
+        if (r.match !== 'word') out.match = r.match;
+        if (r.replacement) out.replacement = r.replacement;
+        if (r.note) out.note = r.note;
+        if (r.severity !== 'high') out.severity = r.severity;
+        if (r.caseSensitive) out.caseSensitive = true;
+        if (!r.enabled) out.enabled = false;
+        return out;
+      }),
+    };
+    return JSON.stringify(doc, null, pretty ? 2 : 0);
+  }
+
+  /**
+   * Parse an exported document, or a bare array of rules. Throws with a
+   * message intended for a person, since this is fed by paste and by file.
+   */
+  function fromJSON(json) {
+    let doc;
+    try {
+      doc = typeof json === 'string' ? JSON.parse(json) : json;
+    } catch (err) {
+      throw new Error(`That is not valid JSON: ${err.message}`);
+    }
+    if (Array.isArray(doc)) return normalize(doc);
+    if (!doc || typeof doc !== 'object') throw new Error('Expected a rule set object or a list.');
+    if (doc.format && doc.format !== FORMAT) {
+      throw new Error(`Unrecognized format "${doc.format}".`);
+    }
+    if (!Array.isArray(doc.rules)) throw new Error('Rule set has no "rules" list.');
+    return normalize(doc.rules);
+  }
+
+  return {
+    DEFAULT_RULES,
+    DIRECTIVES,
+    FORMAT,
+    VERSION,
+    MAX_RULES,
+    MAX_PATTERN,
+    check,
+    normalize,
+    normalizeRule,
+    compile,
+    toJSON,
+    fromJSON,
+    isDirective,
+  };
+})();
+
+</script>
+<script>/**
  * Text extraction for uploaded documents.
  *
  * The scanner page is self-contained — the CSP admits no CDN, so pdf.js is
@@ -4398,14 +4829,28 @@ const Fixer = (() => {
     return bare;
   }
 
-  /** Carry the original's capitalization onto the replacement. */
+  /**
+   * Carry the original's capitalization onto the replacement.
+   *
+   * Case is only meaningful where there are letters. "6,000" equals its own
+   * uppercase, which used to be read as SHOUTING and produced "THOUSANDS".
+   */
   function matchCase(original, replacement) {
     if (!original || !replacement) return replacement;
-    if (original === original.toUpperCase() && original.length > 1) return replacement.toUpperCase();
-    if (original[0] === original[0].toUpperCase()) {
+    const letters = original.replace(/[^A-Za-z]/g, '');
+    if (!letters) return replacement;
+    if (letters === letters.toUpperCase() && letters.length > 1) return replacement.toUpperCase();
+    const first = original.search(/[A-Za-z]/);
+    if (first >= 0 && original[first] === original[first].toUpperCase()) {
       return replacement[0].toUpperCase() + replacement.slice(1);
     }
     return replacement;
+  }
+
+  /** A house-rule replacement that is an instruction rather than a substitution. */
+  function isHouseDirective(replacement) {
+    const t = String(replacement || '').trim().toLowerCase();
+    return t === '' || ['(rewrite)', '(remove)', '(cut)'].includes(t);
   }
 
   /** True when an article immediately precedes the span, so the slot wants a noun. */
@@ -4474,6 +4919,40 @@ const Fixer = (() => {
     const manual = [];
 
     for (const issue of issues) {
+      // House rules carry their own offsets and their own replacement, set
+      // by the writer. A "(rewrite)" / "(remove)" replacement is an
+      // instruction to a person, so it is reported and never applied.
+      if (issue.type === 'house-rule') {
+        const directive = issue.directive || isHouseDirective(issue.suggestion);
+        const target = String(issue.suggestion || '').trim();
+        if (directive || !target) {
+          manual.push(issue);
+          continue;
+        }
+        // "strong, solid" offers options; take the first. But a replacement
+        // made only of punctuation IS the replacement — splitting "," on
+        // commas yields nothing and silently dropped the em-dash rule.
+        const pick = /[A-Za-z0-9]/.test(target)
+          ? target.split(/\s*[,/]\s*/)[0].trim()
+          : target;
+        // A house finding is deduplicated for display but carries every
+        // occurrence on `spans`; all of them get fixed.
+        const spots = Array.isArray(issue.spans) && issue.spans.length
+          ? issue.spans
+          : Number.isInteger(issue.start) && Number.isInteger(issue.end)
+            ? [{ start: issue.start, end: issue.end }]
+            : occurrences(text, String(issue.text || ''));
+        if (!spots.length || !pick) {
+          manual.push(issue);
+          continue;
+        }
+        for (const spot of spots) {
+          const was = text.slice(spot.start, spot.end);
+          edits.push({ ...spot, replacement: matchCase(was, pick), kind: 'house', issue, was });
+        }
+        continue;
+      }
+
       if (NEVER_AUTO.has(issue.type)) {
         manual.push(issue);
         continue;
@@ -4574,7 +5053,7 @@ const Fixer = (() => {
     return { text: apply(text, edits), applied: edits.length, manual, edits };
   }
 
-  return { fix, plan, apply, parseReplacement, inflect, matchCase, occurrences };
+  return { fix, plan, apply, parseReplacement, inflect, matchCase, occurrences, isHouseDirective };
 })();
 
 </script>
@@ -4605,12 +5084,14 @@ const ScanEngine = (() => {
         )),
         ResumeRules: require(path.join(__dirname, 'resume-rules.js')),
         Scoring: require(path.join(__dirname, 'scoring.js')),
+        HouseRules: require(path.join(__dirname, 'house-rules.js')),
       };
     }
     return {
       AIDetector: typeof AIDetector !== 'undefined' ? AIDetector : globalThis.AIDetector,
       ResumeRules: typeof ResumeRules !== 'undefined' ? ResumeRules : globalThis.ResumeRules,
       Scoring: typeof Scoring !== 'undefined' ? Scoring : globalThis.Scoring,
+      HouseRules: typeof HouseRules !== 'undefined' ? HouseRules : globalThis.HouseRules,
     };
   }
 
@@ -4636,7 +5117,7 @@ const ScanEngine = (() => {
    * @param {{mode?: 'auto'|'essay'|'resume', context?: 'general'|'technical'}} [options]
    */
   function scan(text, options = {}) {
-    const { AIDetector, ResumeRules, Scoring } = deps();
+    const { AIDetector, ResumeRules, Scoring, HouseRules } = deps();
     const mode = options.mode && options.mode !== 'auto' ? options.mode : detectMode(text);
 
     // Resumes are fragment-heavy by design. Technical context suppresses the
@@ -4655,6 +5136,26 @@ const ScanEngine = (() => {
       ...(prose.issues || []),
       ...resumeIssues.filter((i) => i.group === 'ai'),
     ];
+
+    // House rules are the writer's own standing bans. They are checked here
+    // but deliberately excluded from the calibration below: a personal style
+    // preference is not evidence of machine authorship, and letting one move
+    // the AI score would make the number mean two different things.
+    let houseIssues = [];
+    let houseError = null;
+    if (options.houseRules !== false) {
+      // An explicitly supplied list is used as given, including an empty one.
+      // Treating [] as "no preference" meant a writer who deleted every rule
+      // silently got the shipped defaults back.
+      const supplied = Array.isArray(options.houseRules)
+        ? options.houseRules
+        : HouseRules.DEFAULT_RULES;
+      try {
+        houseIssues = HouseRules.check(text, supplied);
+      } catch (err) {
+        houseError = err.message;
+      }
+    }
 
     const calibrated = Scoring.calibrate({
       baseScore: prose.score,
@@ -4675,6 +5176,8 @@ const ScanEngine = (() => {
       craftScore: resume ? resume.craftScore : null,
       proseIssues: prose.issues || [],
       resumeIssues,
+      houseIssues,
+      houseError,
       regions: prose.highlight_sentence_for_ai || [],
       sections: resume ? resume.sections : null,
       stats: resume ? { ...prose.stats, ...resume.stats } : prose.stats,
@@ -4686,6 +5189,11 @@ const ScanEngine = (() => {
     const { AIDetector, ResumeRules } = deps();
     const rank = { critical: 4, high: 3, medium: 2, low: 1 };
     const tagged = [
+      ...(result.houseIssues || []).map((i) => ({
+        ...i,
+        source: 'house',
+        label: i.label || 'House rule',
+      })),
       ...result.resumeIssues.map((i) => ({
         ...i,
         source: 'resume',
@@ -4698,8 +5206,15 @@ const ScanEngine = (() => {
         label: (AIDetector.TYPE_LABELS || {})[i.type] || i.type,
       })),
     ];
+    // House findings sort ahead of everything at equal severity — they are
+    // the writer's explicit instruction, and they carry the better wording.
+    const sourceRank = { house: 1, resume: 0, prose: 0 };
     return tagged
-      .sort((a, b) => (rank[b.severity] || 0) - (rank[a.severity] || 0))
+      .sort(
+        (a, b) =>
+          (sourceRank[b.source] || 0) - (sourceRank[a.source] || 0) ||
+          (rank[b.severity] || 0) - (rank[a.severity] || 0)
+      )
       .map((issue, index) => ({ ...issue, id: `f${index}` }));
   }
 
@@ -4857,7 +5372,7 @@ const ScanEngine = (() => {
 
       let result;
       try {
-        result = ScanEngine.scan(text, { mode });
+        result = ScanEngine.scan(text, { mode, houseRules: rules });
       } catch (err) {
         console.error(err);
         return reset('Could not read that — try a shorter passage.');
@@ -4916,6 +5431,195 @@ const ScanEngine = (() => {
         '<p class="empty"><strong>Nothing yet</strong>Paste a draft, or load one of the samples above.</p>';
       setView('draft');
     }
+
+    // ── House rules ──────────────────────────────────────────────
+    //
+    // Persisted in localStorage so a browser keeps them, and exportable as
+    // the same JSON the CLI and the skill read, so they travel.
+    const RULES_KEY = 'proof-desk:house-rules:v1';
+    let rules = loadRules();
+
+    function loadRules() {
+      try {
+        const saved = localStorage.getItem(RULES_KEY);
+        if (saved) return HouseRules.fromJSON(saved);
+      } catch (err) {
+        console.warn('house rules: falling back to defaults —', err.message);
+      }
+      return HouseRules.normalize(HouseRules.DEFAULT_RULES);
+    }
+
+    function saveRules() {
+      try {
+        localStorage.setItem(RULES_KEY, HouseRules.toJSON(rules));
+      } catch {
+        // Private browsing, or storage full. The rules still work this
+        // session; only persistence is lost, so say nothing louder than this.
+        say('Could not save — rules apply for this session only.', 'err');
+      }
+    }
+
+    function say(text, kind) {
+      const el = $('rules-msg');
+      el.textContent = text || '';
+      if (kind) el.dataset.kind = kind;
+      else delete el.dataset.kind;
+    }
+
+    function renderRules() {
+      $('rules-count').textContent = `${rules.filter((r) => r.enabled).length} active`;
+      $('rule-list').innerHTML = rules
+        .map((r, i) => {
+          const target = r.replacement || '—';
+          return (
+            `<div class="rule-row${r.enabled ? '' : ' is-off'}">` +
+            `<span class="rule-pat">${esc(r.label)}</span>` +
+            `<span class="rule-actions">` +
+            `<button type="button" class="btn" data-toggle="${i}">${r.enabled ? 'Off' : 'On'}</button>` +
+            `<button type="button" class="btn" data-del="${i}" aria-label="Delete ${esc(r.label)}">×</button>` +
+            `</span>` +
+            `<span class="rule-meta"><span class="arrow">→</span> ${esc(target)}` +
+            (r.note ? ` · ${esc(r.note)}` : '') +
+            `</span>` +
+            `</div>`
+          );
+        })
+        .join('');
+
+      $('rule-list').querySelectorAll('[data-del]').forEach((b) =>
+        b.addEventListener('click', () => {
+          rules.splice(Number(b.dataset.del), 1);
+          saveRules();
+          renderRules();
+          run();
+        })
+      );
+      $('rule-list').querySelectorAll('[data-toggle]').forEach((b) =>
+        b.addEventListener('click', () => {
+          const r = rules[Number(b.dataset.toggle)];
+          r.enabled = !r.enabled;
+          saveRules();
+          renderRules();
+          run();
+        })
+      );
+    }
+
+    $('rules-toggle').addEventListener('click', () => {
+      const open = $('rules-editor').hidden;
+      $('rules-editor').hidden = !open;
+      $('rules-toggle').setAttribute('aria-expanded', String(open));
+      $('rules-toggle').textContent = open ? 'Done' : 'Edit';
+    });
+
+    $('rule-add').addEventListener('click', () => {
+      const pattern = $('rule-pattern').value.trim();
+      if (!pattern) return say('Enter a word or phrase to ban.', 'err');
+      try {
+        const rule = HouseRules.normalizeRule({
+          pattern,
+          replacement: $('rule-replacement').value.trim(),
+          note: $('rule-note').value.trim(),
+        });
+        rules.push(rule);
+        saveRules();
+        renderRules();
+        ['rule-pattern', 'rule-replacement', 'rule-note'].forEach((id) => ($(id).value = ''));
+        say(`Added "${rule.label}".`, 'ok');
+        run();
+      } catch (err) {
+        say(err.message, 'err');
+      }
+    });
+
+    $('rule-pattern').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') $('rule-add').click();
+    });
+
+    $('rules-copy').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(HouseRules.toJSON(rules));
+        say('Rule set copied.', 'ok');
+      } catch {
+        say('Could not reach the clipboard — use Download instead.', 'err');
+      }
+    });
+
+    // A download only works when the page is the top-level document, i.e.
+    // opened from disk. Embedded in a viewer the save is silently refused,
+    // so the button is removed there rather than left as a dead affordance;
+    // Copy JSON and the paste box cover export in every context.
+    const canDownload = (() => {
+      try {
+        return window.self === window.top;
+      } catch {
+        return false;
+      }
+    })();
+    if (!canDownload) $('rules-download').remove();
+
+    $('rules-download')?.addEventListener('click', () => {
+      try {
+        const blob = new Blob([HouseRules.toJSON(rules)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'house-rules.json';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        say('If nothing downloaded, use Copy JSON.', 'ok');
+      } catch {
+        say('Download blocked here — use Copy JSON.', 'err');
+      }
+    });
+
+    $('rules-import').addEventListener('click', () => $('rules-file').click());
+
+    $('rules-file').addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      try {
+        rules = HouseRules.fromJSON(await file.text());
+        saveRules();
+        renderRules();
+        say(`Imported ${rules.length} rules from ${file.name}.`, 'ok');
+        run();
+      } catch (err) {
+        say(err.message, 'err');
+      }
+    });
+
+    $('rules-paste').addEventListener('click', () => {
+      const box = $('rules-pastebox');
+      if (box.hidden) {
+        box.hidden = false;
+        box.focus();
+        say('Paste a rule set, then press Paste JSON again to import.');
+        return;
+      }
+      try {
+        rules = HouseRules.fromJSON(box.value);
+        saveRules();
+        renderRules();
+        box.hidden = true;
+        box.value = '';
+        say(`Imported ${rules.length} rules.`, 'ok');
+        run();
+      } catch (err) {
+        say(err.message, 'err');
+      }
+    });
+
+    $('rules-reset').addEventListener('click', () => {
+      rules = HouseRules.normalize(HouseRules.DEFAULT_RULES);
+      saveRules();
+      renderRules();
+      say('Reset to the shipped rules.', 'ok');
+      run();
+    });
 
     // ── The scale ────────────────────────────────────────────────
     function buildScale() {
@@ -4990,7 +5694,11 @@ const ScanEngine = (() => {
     }
 
     function renderStats(r) {
-      const rows = [['Words', r.stats.wordCount], ['Flags', r.proseIssues.length + r.resumeIssues.length]];
+      const rows = [
+        ['Words', r.stats.wordCount],
+        ['Flags', r.proseIssues.length + r.resumeIssues.length],
+        ['House', (r.houseIssues || []).length],
+      ];
       if (r.mode === 'resume') {
         rows.push(['Bullets', r.stats.bulletCount]);
         rows.push(['With numbers', `${r.stats.bulletsWithMetrics}`]);
@@ -5080,6 +5788,7 @@ const ScanEngine = (() => {
 
     // ── Findings ─────────────────────────────────────────────────
     const GROUPS = [
+      ['House rules', (i) => i.source === 'house'],
       ['Reads as AI', (i) => i.group === 'ai' && i.source === 'resume'],
       ['Resume craft', (i) => i.group === 'craft'],
       ['Prose patterns', (i) => i.source === 'prose'],
@@ -5109,6 +5818,7 @@ const ScanEngine = (() => {
             '</span>' +
             `<span class="finding-text">${esc(truncate(issue.text, 90))}</span>` +
             (issue.suggestion ? `<span class="finding-fix">${esc(issue.suggestion)}</span>` : '') +
+            (issue.note ? `<span class="finding-note">${esc(issue.note)}</span>` : '') +
             '</button>';
         }
       }
@@ -5189,6 +5899,7 @@ const ScanEngine = (() => {
     }
 
     buildScale();
+    renderRules();
 
     // Open on the AI essay so the page explains itself, but stay in Draft:
     // the proof view is read-only, and landing there means a first-time

@@ -433,6 +433,62 @@
   .stat dt { font-family: var(--mono); font-size: .625rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 .1875rem; }
   .stat dd { margin: 0; font-family: var(--mono); font-size: var(--step-0); font-variant-numeric: tabular-nums; }
 
+  /* ── House rules editor ──────────────────────────────────────── */
+  .rule-tools { display: flex; align-items: center; gap: .5rem; }
+  .rules-intro { margin: 0; padding: .75rem .875rem 0; font-size: var(--step--1); color: var(--ink-2); }
+  .rule-list { max-height: 15rem; overflow-y: auto; margin-top: .625rem; }
+
+  .rule-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: .375rem .5rem;
+    padding: .5rem .875rem;
+    border-top: 1px solid var(--rule);
+    align-items: start;
+  }
+
+  .rule-row.is-off { opacity: .45; }
+  .rule-pat { font-family: var(--mono); font-size: var(--step--1); word-break: break-word; }
+  .rule-meta { grid-column: 1 / -1; font-size: .6875rem; color: var(--ink-2); }
+  .rule-meta .arrow { color: var(--ink-3); }
+  .rule-row .btn { padding: .1875rem .4375rem; font-size: .6875rem; }
+  .rule-actions { display: flex; gap: .25rem; }
+
+  .rule-add, .rule-io {
+    display: flex;
+    gap: .375rem;
+    padding: .625rem .875rem;
+    border-top: 1px solid var(--rule);
+    flex-wrap: wrap;
+  }
+
+  .rule-add input {
+    flex: 1 1 7rem;
+    min-width: 0;
+    padding: .3125rem .5rem;
+    border: 1px solid var(--rule-strong);
+    border-radius: 6px;
+    background: var(--surface);
+    font-size: var(--step--1);
+  }
+
+  #rules-pastebox {
+    width: 100%;
+    min-height: 7rem;
+    border: 0;
+    border-top: 1px solid var(--rule);
+    padding: .625rem .875rem;
+    font-family: var(--mono);
+    font-size: .6875rem;
+    background: var(--surface-2);
+    color: var(--ink);
+    resize: vertical;
+  }
+
+  .rules-msg { margin: 0; padding: 0 .875rem .625rem; font-size: var(--step--1); min-height: 1.2em; }
+  .rules-msg[data-kind="err"] { color: var(--sev-high); }
+  .rules-msg[data-kind="ok"] { color: var(--sev-low); }
+
   /* ── Findings ────────────────────────────────────────────────── */
   .findings { max-height: min(30rem, 60vh); overflow-y: auto; }
 
@@ -474,6 +530,8 @@
   .finding-text { display: block; font-family: var(--serif); font-size: var(--step-0); margin: .1875rem 0 .1875rem; }
   .finding-fix { display: block; font-size: var(--step--1); color: var(--ink-2); line-height: 1.45; }
   .finding-fix::before { content: "→ "; color: var(--ink-3); }
+  .finding-note { display: block; font-size: .6875rem; color: var(--ink-3); margin-top: .125rem; }
+  .finding-note::before { content: "· "; }
 
   .empty { padding: 2rem 1rem; text-align: center; color: var(--ink-2); font-size: var(--step--1); }
   .empty strong { display: block; font-family: var(--serif); font-size: var(--step-2); color: var(--ink); margin-bottom: .25rem; font-weight: 500; }
@@ -606,6 +664,39 @@
         <dl class="stats" id="stats"></dl>
       </section>
 
+      <section class="panel" aria-label="House rules">
+        <div class="panel-head">
+          <span class="eyebrow">House rules</span>
+          <div class="rule-tools">
+            <span class="eyebrow" id="rules-count">0</span>
+            <button type="button" class="btn" id="rules-toggle" aria-expanded="false">Edit</button>
+          </div>
+        </div>
+        <div id="rules-editor" hidden>
+          <p class="rules-intro">
+            Your own standing bans. These are reported separately and never move the AI score —
+            a style preference is not evidence a machine wrote something.
+          </p>
+          <div class="rule-list" id="rule-list"></div>
+          <div class="rule-add">
+            <input type="text" id="rule-pattern" placeholder="word or phrase" aria-label="Pattern">
+            <input type="text" id="rule-replacement" placeholder="replacement (or (rewrite))" aria-label="Replacement">
+            <input type="text" id="rule-note" placeholder="why" aria-label="Note">
+            <button type="button" class="btn btn-primary" id="rule-add">Add</button>
+          </div>
+          <div class="rule-io">
+            <button type="button" class="btn" id="rules-copy">Copy JSON</button>
+            <button type="button" class="btn" id="rules-download">Download</button>
+            <button type="button" class="btn" id="rules-import">Import file</button>
+            <input type="file" id="rules-file" accept=".json,application/json" hidden>
+            <button type="button" class="btn" id="rules-paste">Paste JSON</button>
+            <button type="button" class="btn" id="rules-reset">Reset</button>
+          </div>
+          <textarea id="rules-pastebox" hidden placeholder="Paste an exported rule set here, then press Import" aria-label="Paste rule JSON"></textarea>
+          <p class="rules-msg" id="rules-msg"></p>
+        </div>
+      </section>
+
       <section class="panel" aria-label="Findings">
         <div class="panel-head">
           <span class="eyebrow">Findings</span>
@@ -635,6 +726,7 @@
 <script>/*INJECT:patterns*/</script>
 <script>/*INJECT:resume-rules*/</script>
 <script>/*INJECT:scoring*/</script>
+<script>/*INJECT:house-rules*/</script>
 <script>/*INJECT:extract*/</script>
 <script>/*INJECT:fixer*/</script>
 <script>/*INJECT:engine*/</script>
@@ -788,7 +880,7 @@
 
       let result;
       try {
-        result = ScanEngine.scan(text, { mode });
+        result = ScanEngine.scan(text, { mode, houseRules: rules });
       } catch (err) {
         console.error(err);
         return reset('Could not read that — try a shorter passage.');
@@ -847,6 +939,195 @@
         '<p class="empty"><strong>Nothing yet</strong>Paste a draft, or load one of the samples above.</p>';
       setView('draft');
     }
+
+    // ── House rules ──────────────────────────────────────────────
+    //
+    // Persisted in localStorage so a browser keeps them, and exportable as
+    // the same JSON the CLI and the skill read, so they travel.
+    const RULES_KEY = 'proof-desk:house-rules:v1';
+    let rules = loadRules();
+
+    function loadRules() {
+      try {
+        const saved = localStorage.getItem(RULES_KEY);
+        if (saved) return HouseRules.fromJSON(saved);
+      } catch (err) {
+        console.warn('house rules: falling back to defaults —', err.message);
+      }
+      return HouseRules.normalize(HouseRules.DEFAULT_RULES);
+    }
+
+    function saveRules() {
+      try {
+        localStorage.setItem(RULES_KEY, HouseRules.toJSON(rules));
+      } catch {
+        // Private browsing, or storage full. The rules still work this
+        // session; only persistence is lost, so say nothing louder than this.
+        say('Could not save — rules apply for this session only.', 'err');
+      }
+    }
+
+    function say(text, kind) {
+      const el = $('rules-msg');
+      el.textContent = text || '';
+      if (kind) el.dataset.kind = kind;
+      else delete el.dataset.kind;
+    }
+
+    function renderRules() {
+      $('rules-count').textContent = `${rules.filter((r) => r.enabled).length} active`;
+      $('rule-list').innerHTML = rules
+        .map((r, i) => {
+          const target = r.replacement || '—';
+          return (
+            `<div class="rule-row${r.enabled ? '' : ' is-off'}">` +
+            `<span class="rule-pat">${esc(r.label)}</span>` +
+            `<span class="rule-actions">` +
+            `<button type="button" class="btn" data-toggle="${i}">${r.enabled ? 'Off' : 'On'}</button>` +
+            `<button type="button" class="btn" data-del="${i}" aria-label="Delete ${esc(r.label)}">×</button>` +
+            `</span>` +
+            `<span class="rule-meta"><span class="arrow">→</span> ${esc(target)}` +
+            (r.note ? ` · ${esc(r.note)}` : '') +
+            `</span>` +
+            `</div>`
+          );
+        })
+        .join('');
+
+      $('rule-list').querySelectorAll('[data-del]').forEach((b) =>
+        b.addEventListener('click', () => {
+          rules.splice(Number(b.dataset.del), 1);
+          saveRules();
+          renderRules();
+          run();
+        })
+      );
+      $('rule-list').querySelectorAll('[data-toggle]').forEach((b) =>
+        b.addEventListener('click', () => {
+          const r = rules[Number(b.dataset.toggle)];
+          r.enabled = !r.enabled;
+          saveRules();
+          renderRules();
+          run();
+        })
+      );
+    }
+
+    $('rules-toggle').addEventListener('click', () => {
+      const open = $('rules-editor').hidden;
+      $('rules-editor').hidden = !open;
+      $('rules-toggle').setAttribute('aria-expanded', String(open));
+      $('rules-toggle').textContent = open ? 'Done' : 'Edit';
+    });
+
+    $('rule-add').addEventListener('click', () => {
+      const pattern = $('rule-pattern').value.trim();
+      if (!pattern) return say('Enter a word or phrase to ban.', 'err');
+      try {
+        const rule = HouseRules.normalizeRule({
+          pattern,
+          replacement: $('rule-replacement').value.trim(),
+          note: $('rule-note').value.trim(),
+        });
+        rules.push(rule);
+        saveRules();
+        renderRules();
+        ['rule-pattern', 'rule-replacement', 'rule-note'].forEach((id) => ($(id).value = ''));
+        say(`Added "${rule.label}".`, 'ok');
+        run();
+      } catch (err) {
+        say(err.message, 'err');
+      }
+    });
+
+    $('rule-pattern').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') $('rule-add').click();
+    });
+
+    $('rules-copy').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(HouseRules.toJSON(rules));
+        say('Rule set copied.', 'ok');
+      } catch {
+        say('Could not reach the clipboard — use Download instead.', 'err');
+      }
+    });
+
+    // A download only works when the page is the top-level document, i.e.
+    // opened from disk. Embedded in a viewer the save is silently refused,
+    // so the button is removed there rather than left as a dead affordance;
+    // Copy JSON and the paste box cover export in every context.
+    const canDownload = (() => {
+      try {
+        return window.self === window.top;
+      } catch {
+        return false;
+      }
+    })();
+    if (!canDownload) $('rules-download').remove();
+
+    $('rules-download')?.addEventListener('click', () => {
+      try {
+        const blob = new Blob([HouseRules.toJSON(rules)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'house-rules.json';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        say('If nothing downloaded, use Copy JSON.', 'ok');
+      } catch {
+        say('Download blocked here — use Copy JSON.', 'err');
+      }
+    });
+
+    $('rules-import').addEventListener('click', () => $('rules-file').click());
+
+    $('rules-file').addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      try {
+        rules = HouseRules.fromJSON(await file.text());
+        saveRules();
+        renderRules();
+        say(`Imported ${rules.length} rules from ${file.name}.`, 'ok');
+        run();
+      } catch (err) {
+        say(err.message, 'err');
+      }
+    });
+
+    $('rules-paste').addEventListener('click', () => {
+      const box = $('rules-pastebox');
+      if (box.hidden) {
+        box.hidden = false;
+        box.focus();
+        say('Paste a rule set, then press Paste JSON again to import.');
+        return;
+      }
+      try {
+        rules = HouseRules.fromJSON(box.value);
+        saveRules();
+        renderRules();
+        box.hidden = true;
+        box.value = '';
+        say(`Imported ${rules.length} rules.`, 'ok');
+        run();
+      } catch (err) {
+        say(err.message, 'err');
+      }
+    });
+
+    $('rules-reset').addEventListener('click', () => {
+      rules = HouseRules.normalize(HouseRules.DEFAULT_RULES);
+      saveRules();
+      renderRules();
+      say('Reset to the shipped rules.', 'ok');
+      run();
+    });
 
     // ── The scale ────────────────────────────────────────────────
     function buildScale() {
@@ -921,7 +1202,11 @@
     }
 
     function renderStats(r) {
-      const rows = [['Words', r.stats.wordCount], ['Flags', r.proseIssues.length + r.resumeIssues.length]];
+      const rows = [
+        ['Words', r.stats.wordCount],
+        ['Flags', r.proseIssues.length + r.resumeIssues.length],
+        ['House', (r.houseIssues || []).length],
+      ];
       if (r.mode === 'resume') {
         rows.push(['Bullets', r.stats.bulletCount]);
         rows.push(['With numbers', `${r.stats.bulletsWithMetrics}`]);
@@ -1011,6 +1296,7 @@
 
     // ── Findings ─────────────────────────────────────────────────
     const GROUPS = [
+      ['House rules', (i) => i.source === 'house'],
       ['Reads as AI', (i) => i.group === 'ai' && i.source === 'resume'],
       ['Resume craft', (i) => i.group === 'craft'],
       ['Prose patterns', (i) => i.source === 'prose'],
@@ -1040,6 +1326,7 @@
             '</span>' +
             `<span class="finding-text">${esc(truncate(issue.text, 90))}</span>` +
             (issue.suggestion ? `<span class="finding-fix">${esc(issue.suggestion)}</span>` : '') +
+            (issue.note ? `<span class="finding-note">${esc(issue.note)}</span>` : '') +
             '</button>';
         }
       }
@@ -1120,6 +1407,7 @@
     }
 
     buildScale();
+    renderRules();
 
     // Open on the AI essay so the page explains itself, but stay in Draft:
     // the proof view is read-only, and landing there means a first-time

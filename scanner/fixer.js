@@ -93,14 +93,28 @@ const Fixer = (() => {
     return bare;
   }
 
-  /** Carry the original's capitalization onto the replacement. */
+  /**
+   * Carry the original's capitalization onto the replacement.
+   *
+   * Case is only meaningful where there are letters. "6,000" equals its own
+   * uppercase, which used to be read as SHOUTING and produced "THOUSANDS".
+   */
   function matchCase(original, replacement) {
     if (!original || !replacement) return replacement;
-    if (original === original.toUpperCase() && original.length > 1) return replacement.toUpperCase();
-    if (original[0] === original[0].toUpperCase()) {
+    const letters = original.replace(/[^A-Za-z]/g, '');
+    if (!letters) return replacement;
+    if (letters === letters.toUpperCase() && letters.length > 1) return replacement.toUpperCase();
+    const first = original.search(/[A-Za-z]/);
+    if (first >= 0 && original[first] === original[first].toUpperCase()) {
       return replacement[0].toUpperCase() + replacement.slice(1);
     }
     return replacement;
+  }
+
+  /** A house-rule replacement that is an instruction rather than a substitution. */
+  function isHouseDirective(replacement) {
+    const t = String(replacement || '').trim().toLowerCase();
+    return t === '' || ['(rewrite)', '(remove)', '(cut)'].includes(t);
   }
 
   /** True when an article immediately precedes the span, so the slot wants a noun. */
@@ -169,6 +183,40 @@ const Fixer = (() => {
     const manual = [];
 
     for (const issue of issues) {
+      // House rules carry their own offsets and their own replacement, set
+      // by the writer. A "(rewrite)" / "(remove)" replacement is an
+      // instruction to a person, so it is reported and never applied.
+      if (issue.type === 'house-rule') {
+        const directive = issue.directive || isHouseDirective(issue.suggestion);
+        const target = String(issue.suggestion || '').trim();
+        if (directive || !target) {
+          manual.push(issue);
+          continue;
+        }
+        // "strong, solid" offers options; take the first. But a replacement
+        // made only of punctuation IS the replacement — splitting "," on
+        // commas yields nothing and silently dropped the em-dash rule.
+        const pick = /[A-Za-z0-9]/.test(target)
+          ? target.split(/\s*[,/]\s*/)[0].trim()
+          : target;
+        // A house finding is deduplicated for display but carries every
+        // occurrence on `spans`; all of them get fixed.
+        const spots = Array.isArray(issue.spans) && issue.spans.length
+          ? issue.spans
+          : Number.isInteger(issue.start) && Number.isInteger(issue.end)
+            ? [{ start: issue.start, end: issue.end }]
+            : occurrences(text, String(issue.text || ''));
+        if (!spots.length || !pick) {
+          manual.push(issue);
+          continue;
+        }
+        for (const spot of spots) {
+          const was = text.slice(spot.start, spot.end);
+          edits.push({ ...spot, replacement: matchCase(was, pick), kind: 'house', issue, was });
+        }
+        continue;
+      }
+
       if (NEVER_AUTO.has(issue.type)) {
         manual.push(issue);
         continue;
@@ -269,7 +317,7 @@ const Fixer = (() => {
     return { text: apply(text, edits), applied: edits.length, manual, edits };
   }
 
-  return { fix, plan, apply, parseReplacement, inflect, matchCase, occurrences };
+  return { fix, plan, apply, parseReplacement, inflect, matchCase, occurrences, isHouseDirective };
 })();
 
 if (typeof module !== 'undefined' && module.exports) {

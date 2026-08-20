@@ -45,6 +45,74 @@ To install it globally:
 git clone https://github.com/conorbronsdon/avoid-ai-writing ~/.claude/skills/avoid-ai-writing
 ```
 
+## House rules
+
+Your own standing bans, on top of the AI patterns. They get their own
+**HOUSE RULES** category in every surface, and they **never move the AI
+score** — a style preference is not evidence a machine wrote something, and
+letting "platinum" push a document toward "machine-written" would make the
+number mean two things at once.
+
+The shipped set:
+
+| Pattern | Replacement | Why |
+|---|---|---|
+| `em dash` | `,` | Not how I punctuate |
+| `intersection` | (rewrite) | Overused, means nothing |
+| `crossroads` | (rewrite) | Overused, means nothing |
+| `platinum` | (remove) | Not a claim I make |
+| `leverage (as verb)` | use | Corporate |
+| `delve` | (rewrite) | AI tell |
+| `robust` | strong, solid | AI tell |
+| `landscape` | (rewrite) | AI tell |
+| `6,000` | thousands | Never use the number |
+| `two years coding` | three years | Recurring factual error |
+
+Each entry takes a **pattern**, an optional **replacement**, and an optional
+**note**. Three match modes cover the list above:
+
+- `word` (default) — whole word, case-insensitive. `robust` does not fire
+  inside `robustness`.
+- `literal` — exact substring, no word boundary. An em dash is punctuation and
+  has no `\b` to anchor to.
+- `regex` — for morphology and context. `delve` catches *delves/delved/
+  delving*; `leverage` fires as a verb but not as a noun, so "financial
+  leverage" and "the leverage he had" are left alone.
+
+A replacement of `(rewrite)` or `(remove)` is an **instruction, not a
+substitution**. The fixer applies real replacements and reports directives for
+you to handle, rather than pasting the word "(rewrite)" into your draft.
+
+### One list, three surfaces
+
+The rules live as code in `scanner/house-rules.js` (the page has no network
+and cannot fetch JSON at runtime). Everything else is generated from there by
+`npm run rules:sync`, and `npm run rules:check` fails if any copy has drifted:
+
+| | |
+|---|---|
+| `house-rules.json` | Portable export; what the CLI reads. |
+| `.claude/skills/avoid-ai-writing/HOUSE-RULES.md` | What the Claude Code skill reads. |
+| `.claude/skills/avoid-ai-writing/SKILL.md` | A pointer, fenced in HTML comment markers. |
+
+**In the page** — the HOUSE RULES panel adds, deletes, and toggles rules, kept
+in `localStorage`. **Copy JSON** is the reliable export everywhere; **Download**
+also works when the page is opened from disk. Import takes a file or a paste.
+
+**In the CLI** — rules resolve from the first of: `--rules <file>`,
+`$PROOF_DESK_RULES`, `./.proof-desk-rules.json`,
+`~/.proof-desk/house-rules.json`, then the built-in defaults. `--no-house`
+skips them.
+
+```bash
+node scanner/scan.js draft.md --rules my-rules.json
+```
+
+**In the skill** — `SKILL.md` carries one generated block, fenced between
+`<!-- PROOF-DESK:HOUSE-RULES:BEGIN -->` and `:END`, pointing at
+`HOUSE-RULES.md`. That block is the only edit to the vendored skill text; the
+detector itself is untouched.
+
 ## The score bands
 
 `scanner/scoring.js` is the source of truth for what a number means. The CLI,
@@ -214,6 +282,8 @@ Use it to sharpen a draft. Don't use it to decide whether someone cheated.
 | `dist/index.html` | The whole scanner as one self-contained page. |
 | `scanner/app.html` | UI template the build inlines the engines into. |
 | `scanner/scoring.js` | **Score bands and the calibration curve — the source of truth.** |
+| `scanner/house-rules.js` | **House rules — the source of truth for the rule set.** |
+| `scanner/sync-rules.js` | Regenerates the JSON and skill copies from it. |
 | `scanner/engine.js` | Combines the engines and picks essay vs resume mode. |
 | `scanner/resume-rules.js` | The resume genre layer. |
 | `scanner/fixer.js` | Applies findings that have a definite answer. |
@@ -228,8 +298,9 @@ Use it to sharpen a draft. Don't use it to decide whether someone cheated.
 Node >= 18. No install step.
 
 ```bash
-npm test          # bands, resume rules, fixer, extraction, upstream detector, bundle
+npm test          # bands, house rules, resume rules, fixer, extraction, detector, bundle
 npm run test:bands # just the score calibration + fixture corpus
+npm run rules:sync # regenerate house-rules.json and the skill copies
 npm run build     # regenerate dist/index.html from scanner/app.html
 ```
 
@@ -254,8 +325,10 @@ noted as such in `scanner/extract.test.js`.
 
 The prose detection engine and the `avoid-ai-writing` skill are by
 [Conor Bronsdon](https://github.com/conorbronsdon/avoid-ai-writing), MIT
-licensed, vendored unmodified at commit `b504e20` under
-`.claude/skills/avoid-ai-writing/` with its license retained.
+licensed, vendored at commit `b504e20` under `.claude/skills/avoid-ai-writing/`
+with its license retained. The detector and all its tests are unmodified;
+`SKILL.md` carries one generated block, fenced in HTML comment markers, that
+points at the house rules.
 
 The resume layer, the fixer, the extractor, the CLI, and the web app are new
 work in this repository, MIT licensed — see [LICENSE](LICENSE).

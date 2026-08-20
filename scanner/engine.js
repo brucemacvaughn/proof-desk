@@ -25,12 +25,14 @@ const ScanEngine = (() => {
         )),
         ResumeRules: require(path.join(__dirname, 'resume-rules.js')),
         Scoring: require(path.join(__dirname, 'scoring.js')),
+        HouseRules: require(path.join(__dirname, 'house-rules.js')),
       };
     }
     return {
       AIDetector: typeof AIDetector !== 'undefined' ? AIDetector : globalThis.AIDetector,
       ResumeRules: typeof ResumeRules !== 'undefined' ? ResumeRules : globalThis.ResumeRules,
       Scoring: typeof Scoring !== 'undefined' ? Scoring : globalThis.Scoring,
+      HouseRules: typeof HouseRules !== 'undefined' ? HouseRules : globalThis.HouseRules,
     };
   }
 
@@ -56,7 +58,7 @@ const ScanEngine = (() => {
    * @param {{mode?: 'auto'|'essay'|'resume', context?: 'general'|'technical'}} [options]
    */
   function scan(text, options = {}) {
-    const { AIDetector, ResumeRules, Scoring } = deps();
+    const { AIDetector, ResumeRules, Scoring, HouseRules } = deps();
     const mode = options.mode && options.mode !== 'auto' ? options.mode : detectMode(text);
 
     // Resumes are fragment-heavy by design. Technical context suppresses the
@@ -75,6 +77,26 @@ const ScanEngine = (() => {
       ...(prose.issues || []),
       ...resumeIssues.filter((i) => i.group === 'ai'),
     ];
+
+    // House rules are the writer's own standing bans. They are checked here
+    // but deliberately excluded from the calibration below: a personal style
+    // preference is not evidence of machine authorship, and letting one move
+    // the AI score would make the number mean two different things.
+    let houseIssues = [];
+    let houseError = null;
+    if (options.houseRules !== false) {
+      // An explicitly supplied list is used as given, including an empty one.
+      // Treating [] as "no preference" meant a writer who deleted every rule
+      // silently got the shipped defaults back.
+      const supplied = Array.isArray(options.houseRules)
+        ? options.houseRules
+        : HouseRules.DEFAULT_RULES;
+      try {
+        houseIssues = HouseRules.check(text, supplied);
+      } catch (err) {
+        houseError = err.message;
+      }
+    }
 
     const calibrated = Scoring.calibrate({
       baseScore: prose.score,
@@ -95,6 +117,8 @@ const ScanEngine = (() => {
       craftScore: resume ? resume.craftScore : null,
       proseIssues: prose.issues || [],
       resumeIssues,
+      houseIssues,
+      houseError,
       regions: prose.highlight_sentence_for_ai || [],
       sections: resume ? resume.sections : null,
       stats: resume ? { ...prose.stats, ...resume.stats } : prose.stats,
@@ -106,6 +130,11 @@ const ScanEngine = (() => {
     const { AIDetector, ResumeRules } = deps();
     const rank = { critical: 4, high: 3, medium: 2, low: 1 };
     const tagged = [
+      ...(result.houseIssues || []).map((i) => ({
+        ...i,
+        source: 'house',
+        label: i.label || 'House rule',
+      })),
       ...result.resumeIssues.map((i) => ({
         ...i,
         source: 'resume',
@@ -118,8 +147,15 @@ const ScanEngine = (() => {
         label: (AIDetector.TYPE_LABELS || {})[i.type] || i.type,
       })),
     ];
+    // House findings sort ahead of everything at equal severity — they are
+    // the writer's explicit instruction, and they carry the better wording.
+    const sourceRank = { house: 1, resume: 0, prose: 0 };
     return tagged
-      .sort((a, b) => (rank[b.severity] || 0) - (rank[a.severity] || 0))
+      .sort(
+        (a, b) =>
+          (sourceRank[b.source] || 0) - (sourceRank[a.source] || 0) ||
+          (rank[b.severity] || 0) - (rank[a.severity] || 0)
+      )
       .map((issue, index) => ({ ...issue, id: `f${index}` }));
   }
 
