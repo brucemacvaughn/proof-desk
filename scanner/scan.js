@@ -27,6 +27,7 @@ const AIDetector = require(path.join(
 const ResumeRules = require('./resume-rules.js');
 const ScanEngine = require('./engine.js');
 const Fixer = require('./fixer.js');
+const Scoring = require('./scoring.js');
 
 // ═══ Terminal helpers ════════════════════════════════════════════════
 
@@ -40,10 +41,12 @@ const green = c('32');
 const cyan = c('36');
 
 function scoreColor(score) {
-  if (score <= 15) return green;
-  if (score <= 35) return c('92');
-  if (score <= 60) return yellow;
-  return red;
+  // Same bands the UI and the fixture tests read, so a number never means
+  // one thing in the terminal and another on the page.
+  const tone = Scoring.bandFor(score).tone;
+  if (tone === 'high') return red;
+  if (tone === 'mid') return yellow;
+  return Scoring.bandFor(score).id === 'clean' ? green : c('92');
 }
 
 function bar(score, width = 28) {
@@ -106,7 +109,19 @@ function render(result, { quiet }) {
 
   out.push('');
   out.push(`  ${bold('AI-writing score')}  ${sc(bold(String(result.aiScore).padStart(3)))}${dim('/100')}  ${bar(result.aiScore)}`);
-  out.push(`  ${dim(result.label)} ${dim('·')} ${dim(result.classification)} ${dim(`(${result.confidence} confidence)`)}`);
+  const band = result.band || Scoring.bandFor(result.aiScore);
+  out.push(`  ${sc(bold(band.label))} ${dim(`(${band.min}-${band.max})`)}`);
+  out.push(`  ${dim(band.blurb)}`);
+  out.push(`  ${dim(result.classification)} ${dim(`· ${result.confidence} confidence`)}`);
+  if (result.calibration) {
+    const cal = result.calibration;
+    out.push(
+      dim(
+        `  detector ${cal.baseScore} · ${cal.density.toFixed(1)} weighted flags/100 words` +
+          (cal.evidence < 1 ? ` · damped to ${(cal.evidence * 100).toFixed(0)}% (few findings)` : '')
+      )
+    );
+  }
 
   if (result.mode === 'resume') {
     const cc = scoreColor(100 - result.craftScore);
@@ -114,8 +129,7 @@ function render(result, { quiet }) {
     out.push(`  ${bold('Resume craft   ')}  ${cc(bold(String(result.craftScore).padStart(3)))}${dim('/100')}  ${bar(100 - result.craftScore)} ${dim('(lower bar = better)')}`);
     out.push(
       dim(
-        `  prose engine ${result.proseScore} + resume tells ${result.uplift} · ` +
-          `${result.stats.bulletsWithMetrics}/${result.stats.bulletCount} bullets carry a number`
+        `  ${result.stats.bulletsWithMetrics}/${result.stats.bulletCount} bullets carry a number`
       )
     );
   }

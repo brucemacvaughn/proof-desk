@@ -628,16 +628,6 @@ const ResumeRules = (() => {
     };
   }
 
-  /**
-   * Bounded uplift applied to the prose detector's score for resumes. Capped
-   * at 25 so the genre layer can sharpen a verdict but never manufacture one
-   * on its own — the calibrated engine stays in charge.
-   */
-  function aiUplift(resumeResult) {
-    if (!resumeResult || !resumeResult.stats || !resumeResult.stats.scorable) return 0;
-    return Math.min(25, Math.round(resumeResult.aiScore * 0.35));
-  }
-
   function severityRank(s) {
     return { high: 3, medium: 2, low: 1 }[s] || 0;
   }
@@ -658,7 +648,6 @@ const ResumeRules = (() => {
   return {
     analyzeResume,
     parseResume,
-    aiUplift,
     getLabel,
     ISSUE_WEIGHTS,
     TYPE_LABELS,

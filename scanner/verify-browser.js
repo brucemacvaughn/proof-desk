@@ -42,6 +42,9 @@ function check(name, condition, detail) {
 async function readout(page) {
   return page.evaluate(() => ({
     ai: document.getElementById('ai-score').textContent.trim(),
+    band: (document.getElementById('ai-band-label') || {}).textContent || '',
+    bandTone: (document.getElementById('ai-band') || {}).dataset?.tone || '',
+    activeSeg: (document.querySelector('.scale-seg[data-active="true"]') || {}).dataset?.band || '',
     mode: document.getElementById('mode-note').textContent.trim(),
     craftHidden: document.getElementById('craft-block').hidden,
     marks: document.querySelectorAll('mark.mk').length,
@@ -107,6 +110,10 @@ async function readout(page) {
   check('proof marks rendered', r.marks > 5, `${r.marks} marks`);
   check('findings listed', r.findings > 5, `${r.findings} findings`);
   check('no horizontal scroll', r.hScroll === false);
+  check('the band label is shown next to the score', r.band.length > 3, `band="${r.band}"`);
+  check('the AI essay reads as machine-written', r.band === 'Reads as machine-written', r.band);
+  check('the scale legend highlights the active band', r.activeSeg === 'machine', r.activeSeg);
+  check('the band carries a severity tone', r.bandTone === 'high', r.bandTone);
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, '1-light-essay.png') });
 
   // ── Resume sample ───────────────────────────────────────────────
@@ -144,6 +151,9 @@ async function readout(page) {
       hint: document.getElementById('hint').textContent,
       mode: document.getElementById('mode-note').textContent.trim(),
       ai: document.getElementById('ai-score').textContent.trim(),
+    band: (document.getElementById('ai-band-label') || {}).textContent || '',
+    bandTone: (document.getElementById('ai-band') || {}).dataset?.tone || '',
+    activeSeg: (document.querySelector('.scale-seg[data-active="true"]') || {}).dataset?.band || '',
     }));
     check(`${name}: text lands in the draft`, /Jane Doe/.test(up.draft), up.draft.slice(0, 80));
     check(`${name}: bullets survive extraction`, /Spearheaded a cross-functional/.test(up.draft));
@@ -203,6 +213,8 @@ async function readout(page) {
   r = await readout(page);
   const humanScore = parseInt(r.ai, 10);
   check('human resume scores low', humanScore <= 15, `scored ${humanScore}`);
+  check('human resume reads as human', r.band === 'Reads as human', r.band);
+  check('human resume lights the clean segment', r.activeSeg === 'clean', r.activeSeg);
 
   // ── Empty state ─────────────────────────────────────────────────
   await page.click('[data-sample="clear"]');

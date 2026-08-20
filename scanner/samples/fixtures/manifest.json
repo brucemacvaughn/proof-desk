@@ -1,0 +1,22 @@
+{
+  "note": "Expected band per fixture. The bands test fails if any document leaves its band. Paths are relative to scanner/samples/.",
+  "fixtures": [
+    { "file": "ai-essay.md",                    "mode": "essay",  "band": "machine",  "why": "dense generated prose: testament to, watershed moment, delves into, Moreover, Furthermore, experts believe" },
+    { "file": "ai-resume.txt",                  "mode": "resume", "band": "machine",  "why": "every LLM resume tell at once, on top of clean structure" },
+    { "file": "fixtures/ai-cover-letter.md",    "mode": "essay",  "band": "machine",  "why": "the archetypal generated cover letter" },
+    { "file": "fixtures/ai-personal-statement.md", "mode": "essay", "band": "machine", "why": "generated personal statement, tapestry/cornerstone/delving" },
+    { "file": "fixtures/ai-blog-post.md",       "mode": "essay",  "band": "machine",  "why": "generated SEO blog post" },
+
+    { "file": "fixtures/assisted-essay.md",     "mode": "essay",  "band": "assisted", "why": "real content and real numbers, but polished into AI cadence in places" },
+    { "file": "fixtures/assisted-cover-letter.md", "mode": "essay", "band": "assisted", "why": "specific human detail interleaved with generated filler paragraphs" },
+
+    { "file": "fixtures/light-signals.md",      "mode": "essay",  "band": "some",     "why": "human writing that happens to use delving and Moreover once each" },
+
+    { "file": "human-essay.md",                 "mode": "essay",  "band": "clean",    "why": "specific, uneven, first-person, real numbers" },
+    { "file": "human-resume.txt",               "mode": "resume", "band": "clean",    "why": "uneven bullets, concrete metrics, no cliches" },
+    { "file": "fixtures/human-cover-letter.md", "mode": "essay",  "band": "clean",    "why": "blunt voice, admits a weakness, specific failure story" },
+    { "file": "fixtures/human-technical.md",    "mode": "essay",  "band": "clean",    "why": "FALSE-POSITIVE GUARD: technical runbook, imperative and dense, must not read as AI" },
+    { "file": "fixtures/human-nonnative.md",    "mode": "essay",  "band": "clean",    "why": "FALSE-POSITIVE GUARD: second-language English. Audits put detector false-positive rates above 60% here, so this must stay low" },
+    { "file": "fixtures/human-short-note.md",   "mode": "essay",  "band": "clean",    "why": "short incident note, admits fault, plain" }
+  ]
+}

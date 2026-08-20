@@ -45,6 +45,63 @@ To install it globally:
 git clone https://github.com/conorbronsdon/avoid-ai-writing ~/.claude/skills/avoid-ai-writing
 ```
 
+## The score bands
+
+`scanner/scoring.js` is the source of truth for what a number means. The CLI,
+the web page, and the fixture tests all read the bands from there, so the
+terminal and the browser can never disagree.
+
+| Score | Band | Means |
+|---|---|---|
+| 0–15 | **Reads as human** | Nothing here looks machine-written. |
+| 16–40 | **Some AI signals** | A few tells. Worth a look, not an alarm. |
+| 41–70 | **Reads as AI-assisted** | Enough patterns that a reader would notice. Worth editing. |
+| 71–100 | **Reads as machine-written** | Dense with generated-text patterns. Rewrite before sending. |
+
+### Why there is a calibration layer
+
+The vendored detector normalizes with `rawScore / max(1, log2(words/50))`.
+That divisor stops long documents accumulating score forever, but it also
+punishes density: the bundled AI essay packs 19 distinct flags into 125 words
+and used to land on **49/100** — "moderate, low confidence" — while clean prose
+landed on 0. The usable range was 0–50 and the top half was unreachable.
+
+The detector is vendored unmodified, so the fix lives in `scoring.js`, which
+treats the detector's output as evidence rather than the verdict. Two channels,
+stronger wins:
+
+- **Density** — severity-weighted flags per 100 words through a saturating
+  curve. Density is what actually separates the corpus: human fixtures run
+  ~2 weighted flags per 100 words, generated ones 37–100.
+- **Base** — the detector's own score, so a document it feels strongly about
+  for reasons density misses is never talked down.
+
+Two guards preserve the FN-bias:
+
+- **Corroboration.** Density is damped by `(findings / 3)²`, so one flag counts
+  for 11%, two for 44%, three for full. Every clean fixture in the corpus —
+  including the technical runbook and the second-language piece — carries at
+  most one flag. One "delve" is a word choice; three distinct tells is a
+  signature.
+- **Minimum length.** Under 40 words there is not enough text to judge, and the
+  score stays in the clean band rather than guessing.
+
+That moves the AI essay 49 → **89** and leaves the human essay at **3**.
+
+### The fixture corpus
+
+`scanner/samples/fixtures/manifest.json` pins 14 documents to expected bands,
+and `npm run test:bands` fails if any leaves its band. Two of them are
+false-positive guards that matter more than the rest:
+
+- `human-technical.md` — dense imperative technical prose
+- `human-nonnative.md` — second-language English
+
+Audits put detector false-positive rates above 60% on non-native writers, so a
+calibration that lifts either out of the clean band is a regression regardless
+of what it does for the generated fixtures. Current separation is 50+ points
+between the lowest machine fixture and the highest human one.
+
 ## The two scores
 
 Resumes are scored on two separate axes, because "sounds human" and "is a good
@@ -54,9 +111,8 @@ contact block, dated role, a number on every bullet — that still reads as
 machine-written.
 
 - **AI-writing score** (0–100, lower is better) — how machine-generated it
-  reads. The prose detector's calibrated score, plus a bounded uplift (max 25)
-  from resume-specific tells, so the genre layer can sharpen a verdict but
-  never manufacture one on its own.
+  reads, on the bands above. Resume-specific AI tells feed the same curve as
+  prose findings, so a resume and an essay are judged on one scale.
 - **Resume craft** (0–100, higher is better) — structure, metrics, and verb
   quality. Independent of who or what wrote it.
 
@@ -104,9 +160,14 @@ Two guards, both from real bugs: an `-ed` word is never re-conjugated
 (`poised` → `ready`, not `readyed`), and a swap is skipped when an article
 precedes it and the replacement reads as a verb (`a testament to` → `a shows`).
 
-On the bundled AI essay this takes 49 → 12, applying 13 edits and leaving 6.
-On the human essay it applies **zero**. Read the result once before sending —
-a swap can be locally correct and contextually flat.
+On the bundled AI essay this takes **89 → 43**, applying 13 edits and leaving
+6. Note where that lands: machine-written down to AI-assisted, not down to
+clean. The deterministic pass strips the vocabulary and the filler, but what
+remains — vague attribution, generic conclusions, uniform rhythm — needs a
+rewrite, not a swap. On the human essay it applies **zero**.
+
+Read the result once before sending; a swap can be locally correct and
+contextually flat.
 
 ## File upload
 
@@ -152,6 +213,7 @@ Use it to sharpen a draft. Don't use it to decide whether someone cheated.
 |---|---|
 | `dist/index.html` | The whole scanner as one self-contained page. |
 | `scanner/app.html` | UI template the build inlines the engines into. |
+| `scanner/scoring.js` | **Score bands and the calibration curve — the source of truth.** |
 | `scanner/engine.js` | Combines the engines and picks essay vs resume mode. |
 | `scanner/resume-rules.js` | The resume genre layer. |
 | `scanner/fixer.js` | Applies findings that have a definite answer. |
@@ -166,7 +228,8 @@ Use it to sharpen a draft. Don't use it to decide whether someone cheated.
 Node >= 18. No install step.
 
 ```bash
-npm test          # resume rules, fixer, extraction, upstream detector, bundle
+npm test          # bands, resume rules, fixer, extraction, upstream detector, bundle
+npm run test:bands # just the score calibration + fixture corpus
 npm run build     # regenerate dist/index.html from scanner/app.html
 ```
 

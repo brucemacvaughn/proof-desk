@@ -372,8 +372,47 @@
     transition: width .45s cubic-bezier(.2, .7, .3, 1), background .3s;
   }
 
+  .band {
+    display: flex;
+    align-items: center;
+    gap: .4375rem;
+    margin: 0;
+    font-size: var(--step-0);
+    font-weight: 500;
+    line-height: 1.3;
+  }
+
+  .band-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .band[data-tone="low"]  { color: var(--sev-low); }
+  .band[data-tone="mid"]  { color: var(--sev-mid); }
+  .band[data-tone="high"] { color: var(--sev-high); }
+  .band[data-tone="low"]  .band-dot { background: var(--sev-low); }
+  .band[data-tone="mid"]  .band-dot { background: var(--sev-mid); }
+  .band[data-tone="high"] .band-dot { background: var(--sev-high); }
+
+  /* The scale itself, so the number has a frame of reference. */
+  .scale { display: flex; gap: 1px; margin-top: .5rem; }
+  .scale-seg {
+    flex: 1;
+    padding: .25rem .3125rem .3125rem;
+    background: var(--surface-2);
+    font-family: var(--mono);
+    font-size: .5625rem;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    text-align: center;
+    line-height: 1.25;
+    transition: background .25s, color .25s;
+  }
+  .scale-seg:first-child { border-radius: 4px 0 0 4px; }
+  .scale-seg:last-child { border-radius: 0 4px 4px 0; }
+  .scale-seg[data-active="true"] { color: var(--accent-ink); background: var(--accent); }
+  .scale-seg b { display: block; font-weight: 600; font-size: .625rem; }
+
   .readout-label { font-size: var(--step--1); color: var(--ink-2); }
   .readout-label b { color: var(--ink); font-weight: 500; }
+  .dim-conf { color: var(--ink-3); font-family: var(--mono); font-size: .6875rem; }
 
   /* Trinary classification from the engine — human / mixed / ai. */
   .probs { display: flex; flex-direction: column; gap: .4375rem; }
@@ -531,7 +570,8 @@
               <span class="eyebrow">AI-writing score</span>
               <span class="readout-num" id="ai-score">—<span class="of">/100</span></span>
             </div>
-            <div class="meter"><i id="ai-meter" style="width:0%"></i></div>
+            <div class="meter" id="ai-meter-track"><i id="ai-meter" style="width:0%"></i></div>
+            <p class="band" id="ai-band" hidden><span class="band-dot"></span><span id="ai-band-label"></span></p>
             <p class="readout-label" id="ai-label">Paste something to start.</p>
           </div>
 
@@ -542,6 +582,11 @@
             </div>
             <div class="meter"><i id="craft-meter" style="width:0%"></i></div>
             <p class="readout-label" id="craft-label">Structure, metrics, and verbs — separate from how AI it sounds.</p>
+          </div>
+
+          <div id="scale-wrap">
+            <span class="eyebrow">The scale</span>
+            <div class="scale" id="scale"></div>
           </div>
 
           <div class="probs" id="probs" hidden>
@@ -589,6 +634,7 @@
 
 <script>/*INJECT:patterns*/</script>
 <script>/*INJECT:resume-rules*/</script>
+<script>/*INJECT:scoring*/</script>
 <script>/*INJECT:extract*/</script>
 <script>/*INJECT:fixer*/</script>
 <script>/*INJECT:engine*/</script>
@@ -789,7 +835,9 @@
       $('ai-meter').style.width = '0%';
       $('ai-label').textContent = message || 'Paste something to start.';
       $('craft-block').hidden = true;
+      $('ai-band').hidden = true;
       $('probs').hidden = true;
+      markScale(null);
       $('mode-note').textContent = '—';
       $('stats').innerHTML = '';
       proof.innerHTML = '';
@@ -798,6 +846,26 @@
       $('findings').innerHTML =
         '<p class="empty"><strong>Nothing yet</strong>Paste a draft, or load one of the samples above.</p>';
       setView('draft');
+    }
+
+    // ── The scale ────────────────────────────────────────────────
+    function buildScale() {
+      $('scale').innerHTML = Scoring.BANDS.map(
+        (b) =>
+          `<div class="scale-seg" data-band="${b.id}" title="${esc(b.blurb)}">` +
+          `<b>${b.min}–${b.max}</b>${esc(shortLabel(b))}</div>`
+      ).join('');
+    }
+
+    // The rail is narrow; the pill already carries the full wording.
+    function shortLabel(b) {
+      return { clean: 'human', some: 'some', assisted: 'assisted', machine: 'machine' }[b.id] || b.id;
+    }
+
+    function markScale(activeId) {
+      $('scale')
+        .querySelectorAll('.scale-seg')
+        .forEach((el) => el.setAttribute('data-active', String(el.dataset.band === activeId)));
     }
 
     // ── Verdict ──────────────────────────────────────────────────
@@ -814,9 +882,18 @@
       meter.style.width = `${r.aiScore}%`;
       meter.style.background = sevColor(r.aiScore);
 
+      // The band is what makes the number mean something. It comes from
+      // scoring.js, the same source the CLI and the fixture tests read.
+      const band = r.band || Scoring.bandFor(r.aiScore);
+      const pill = $('ai-band');
+      pill.hidden = false;
+      pill.dataset.tone = band.tone;
+      $('ai-band-label').textContent = band.label;
+
       const conf = r.confidence ? ` · ${r.confidence} confidence` : '';
-      $('ai-label').innerHTML = `<b>${esc(r.label)}</b>${esc(conf)}`;
+      $('ai-label').innerHTML = `${esc(band.blurb)}<br><span class="dim-conf">${esc(band.min)}–${esc(band.max)}${esc(conf)}</span>`;
       $('mode-note').textContent = `${r.mode} mode`;
+      markScale(band.id);
 
       const isResume = r.mode === 'resume';
       $('craft-block').hidden = !isResume;
@@ -1041,6 +1118,8 @@
       const str = String(s).replace(/\s+/g, ' ').trim();
       return str.length > n ? str.slice(0, n - 1) + '…' : str;
     }
+
+    buildScale();
 
     // Open on the AI essay so the page explains itself, but stay in Draft:
     // the proof view is read-only, and landing there means a first-time

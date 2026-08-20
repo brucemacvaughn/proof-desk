@@ -35,6 +35,7 @@ test('both engines and the orchestrator are inlined', () => {
   assert.ok(html.includes('const ScanEngine'), 'engine missing');
   assert.ok(html.includes('const Fixer'), 'fixer missing');
   assert.ok(html.includes('const Extract'), 'extractor missing');
+  assert.ok(html.includes('const Scoring'), 'scoring/bands missing');
 });
 
 test('samples are inlined', () => {
@@ -87,7 +88,7 @@ test('every script block in the bundle compiles', () => {
   // `new Function` compiles without executing — which is exactly what catches
   // a syntax error introduced by a bad injection.
   const blocks = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
-  assert.ok(blocks.length >= 6, `expected 6 script blocks, got ${blocks.length}`);
+  assert.ok(blocks.length >= 7, `expected 7 script blocks, got ${blocks.length}`);
   blocks.forEach((code, i) => {
     assert.doesNotThrow(() => new Function(code), `script block ${i} has a syntax error`);
   });
@@ -104,9 +105,10 @@ test('the built page evaluates its engines without a DOM', () => {
       b.includes('const ResumeRules') ||
       b.includes('const Fixer') ||
       b.includes('const Extract') ||
+      b.includes('const Scoring') ||
       b.includes('const ScanEngine')
   );
-  assert.strictEqual(engineBlocks.length, 5, `expected 5 engine blocks, got ${engineBlocks.length}`);
+  assert.strictEqual(engineBlocks.length, 6, `expected 6 engine blocks, got ${engineBlocks.length}`);
 
   const sandbox = { module: undefined, console };
   vm.createContext(sandbox);
@@ -128,6 +130,18 @@ test('the built page evaluates its engines without a DOM', () => {
       '"technology to deliver robust solutions for the whole industry.").issues)',
     sandbox
   );
+  const bands = vm.runInContext('Scoring.BANDS.map(b => b.id + ":" + b.min + "-" + b.max).join(",")', sandbox);
+  assert.strictEqual(
+    bands,
+    'clean:0-15,some:16-40,assisted:41-70,machine:71-100',
+    `bundled bands drifted from the source of truth: ${bands}`
+  );
+  const banded = vm.runInContext(
+    'ScanEngine.scan(' + JSON.stringify(require('fs').readFileSync(require('path').join(__dirname, 'samples', 'ai-essay.md'), 'utf8')) + ', {mode:"essay"})',
+    sandbox
+  );
+  assert.strictEqual(banded.band.id, 'machine', `bundled AI essay scored ${banded.aiScore}`);
+
   assert.ok(fixed.applied > 0, 'bundled fixer applied nothing');
   assert.ok(!/Moreover/.test(fixed.text), `bundled fixer left filler in: ${fixed.text}`);
 });

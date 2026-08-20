@@ -24,11 +24,13 @@ const ScanEngine = (() => {
           'patterns.js'
         )),
         ResumeRules: require(path.join(__dirname, 'resume-rules.js')),
+        Scoring: require(path.join(__dirname, 'scoring.js')),
       };
     }
     return {
       AIDetector: typeof AIDetector !== 'undefined' ? AIDetector : globalThis.AIDetector,
       ResumeRules: typeof ResumeRules !== 'undefined' ? ResumeRules : globalThis.ResumeRules,
+      Scoring: typeof Scoring !== 'undefined' ? Scoring : globalThis.Scoring,
     };
   }
 
@@ -54,7 +56,7 @@ const ScanEngine = (() => {
    * @param {{mode?: 'auto'|'essay'|'resume', context?: 'general'|'technical'}} [options]
    */
   function scan(text, options = {}) {
-    const { AIDetector, ResumeRules } = deps();
+    const { AIDetector, ResumeRules, Scoring } = deps();
     const mode = options.mode && options.mode !== 'auto' ? options.mode : detectMode(text);
 
     // Resumes are fragment-heavy by design. Technical context suppresses the
@@ -63,42 +65,39 @@ const ScanEngine = (() => {
     const proseContext = mode === 'resume' ? 'technical' : options.context || 'general';
     const prose = AIDetector.analyzeText(text, { contextMode: proseContext });
 
-    const base = {
+    const resume = mode === 'resume' ? ResumeRules.analyzeResume(text) : null;
+    const resumeIssues = resume ? resume.issues : [];
+
+    // Every finding that is evidence of machine authorship feeds the curve.
+    // Craft findings (a bullet with no number) say nothing about who wrote it,
+    // so they are excluded here and reported on their own axis.
+    const aiIssues = [
+      ...(prose.issues || []),
+      ...resumeIssues.filter((i) => i.group === 'ai'),
+    ];
+
+    const calibrated = Scoring.calibrate({
+      baseScore: prose.score,
+      issues: aiIssues,
+      wordCount: prose.stats.wordCount,
+    });
+
+    return {
       mode,
+      aiScore: calibrated.score,
+      band: calibrated.band,
+      label: calibrated.band.label,
       classification: prose.document_classification,
       probabilities: prose.class_probabilities,
       confidence: prose.confidence_category,
       proseScore: prose.score,
+      calibration: calibrated,
+      craftScore: resume ? resume.craftScore : null,
       proseIssues: prose.issues || [],
+      resumeIssues,
       regions: prose.highlight_sentence_for_ai || [],
-      stats: prose.stats,
-    };
-
-    if (mode !== 'resume') {
-      return {
-        ...base,
-        aiScore: prose.score,
-        label: prose.label,
-        craftScore: null,
-        uplift: 0,
-        resumeIssues: [],
-        sections: null,
-      };
-    }
-
-    const resume = ResumeRules.analyzeResume(text);
-    const uplift = ResumeRules.aiUplift(resume);
-    const aiScore = Math.min(100, prose.score + uplift);
-
-    return {
-      ...base,
-      aiScore,
-      label: ResumeRules.getLabel(aiScore),
-      craftScore: resume.craftScore,
-      uplift,
-      resumeIssues: resume.issues,
-      sections: resume.sections,
-      stats: { ...prose.stats, ...resume.stats },
+      sections: resume ? resume.sections : null,
+      stats: resume ? { ...prose.stats, ...resume.stats } : prose.stats,
     };
   }
 

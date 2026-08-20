@@ -509,12 +509,6 @@ test('empty and null input do not throw', () => {
   }
 });
 
-test('uplift is bounded at 25', () => {
-  const heavy = R.analyzeResume(AI_RESUME);
-  assert.ok(R.aiUplift(heavy) <= 25, 'uplift must be capped');
-  assert.strictEqual(R.aiUplift(R.analyzeResume('too short')), 0);
-});
-
 test('every issue carries a group and a weight', () => {
   const r = R.analyzeResume(AI_RESUME);
   assert.ok(r.issues.length > 0);
