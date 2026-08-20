@@ -113,6 +113,63 @@ node scanner/scan.js draft.md --rules my-rules.json
 `HOUSE-RULES.md`. That block is the only edit to the vendored skill text; the
 detector itself is untouched.
 
+## Voice: the reference corpus
+
+*Phase 2, Stage 1 — ingest. The fingerprint (Stage 2) and the VOICE MATCH
+score (Stage 3) are not built yet; nothing else in the app changes until a
+corpus exists.*
+
+Proof Desk can hold a **reference corpus**: 4–6 samples of your own writing,
+used later to compare a draft against how you actually write.
+
+### Every sample must be your own unassisted writing
+
+This is the constraint the whole feature depends on. If a sample was drafted
+with an assistant, the fingerprint describes the assistant, not you — and
+every comparison afterwards is confidently wrong in the worst direction: it
+tells you your own voice is off while rating assistant-shaped prose as
+authentic. Much recent professional writing is assistant-drafted, so this is
+the normal case, not an edge case.
+
+The page says so plainly, and **every sample is screened on the way in** with
+the AI detector that already ships here. Anything scoring above the "some
+signals" band is flagged, excluded from readiness, and left out of the text a
+fingerprint would read. You can override that per sample, and the page tells
+you what you are accepting. A screen catches the obvious case; it is not proof.
+
+### What makes a corpus usable
+
+| | |
+|---|---|
+| Samples | 4 minimum, 6 recommended (12 ceiling) |
+| Words per sample | 100 minimum |
+| Total words | 1,500 minimum; 3,000+ for full confidence |
+
+Below those floors the corpus reports exactly what is missing — *"3 of 4
+samples. Add 1 more."*, *"467 of 1500 words."* — rather than producing a
+number that looks authoritative. Confidence is reported as `none` / `low` /
+`medium` / `high` and never inferred silently.
+
+### Using it
+
+**In the page** — the YOUR WRITING panel takes a paste or a file (PDF, .docx,
+text, through the same extractor as the scanner). Samples persist in
+`localStorage`; Copy JSON exports, file or paste imports.
+
+**In the CLI**
+
+```bash
+node scanner/scan.js --corpus-status --corpus my-corpus.json
+node scanner/scan.js draft.md --corpus my-corpus.json
+```
+
+Resolved from the first of `--corpus <file>`, `$PROOF_DESK_CORPUS`,
+`./.proof-desk-corpus.json`, `~/.proof-desk/corpus.json`. `--corpus-status`
+exits non-zero when the corpus is not yet usable, so it works as a check.
+
+**In the skill** — `.claude/skills/avoid-ai-writing/VOICE.md` is generated
+from the same thresholds and states the unassisted constraint for the agent.
+
 ## The score bands
 
 `scanner/scoring.js` is the source of truth for what a number means. The CLI,
@@ -283,6 +340,7 @@ Use it to sharpen a draft. Don't use it to decide whether someone cheated.
 | `scanner/app.html` | UI template the build inlines the engines into. |
 | `scanner/scoring.js` | **Score bands and the calibration curve — the source of truth.** |
 | `scanner/house-rules.js` | **House rules — the source of truth for the rule set.** |
+| `scanner/corpus.js` | Reference corpus: storage, screening, readiness. |
 | `scanner/sync-rules.js` | Regenerates the JSON and skill copies from it. |
 | `scanner/engine.js` | Combines the engines and picks essay vs resume mode. |
 | `scanner/resume-rules.js` | The resume genre layer. |
@@ -298,7 +356,7 @@ Use it to sharpen a draft. Don't use it to decide whether someone cheated.
 Node >= 18. No install step.
 
 ```bash
-npm test          # bands, house rules, resume rules, fixer, extraction, detector, bundle
+npm test          # bands, house rules, corpus, resume rules, fixer, extraction, detector, bundle
 npm run test:bands # just the score calibration + fixture corpus
 npm run rules:sync # regenerate house-rules.json and the skill copies
 npm run build     # regenerate dist/index.html from scanner/app.html

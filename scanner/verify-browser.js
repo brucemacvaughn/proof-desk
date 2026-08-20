@@ -171,6 +171,84 @@ async function readout(page) {
   const bad = await page.evaluate(() => document.getElementById('hint').textContent);
   check('an unreadable PDF explains what to do', /readable text|scanned|OCR/i.test(bad), bad);
 
+  // ── Reference corpus (Stage 1: ingest) ──────────────────────────
+  const corpusInit = await page.evaluate(() => ({
+    warn: (document.querySelector('.corpus-warn') || {}).textContent || '',
+    count: document.getElementById('corpus-count').textContent,
+    hidden: document.getElementById('corpus-editor').hidden,
+  }));
+  check('the corpus panel starts empty', /none/.test(corpusInit.count), corpusInit.count);
+  check(
+    'the unassisted-writing warning is on the page',
+    // The markup wraps, so the copy carries newlines mid-sentence.
+    /wrote\s+yourself,\s+unassisted/i.test(corpusInit.warn) &&
+      /describes\s+the\s+assistant/i.test(corpusInit.warn),
+    corpusInit.warn.slice(0, 90)
+  );
+
+  await page.click('#corpus-toggle');
+  await page.waitForTimeout(200);
+  check('the corpus editor opens', (await page.evaluate(() => !document.getElementById('corpus-editor').hidden)) === true);
+
+  // Too short is refused with the numbers.
+  await page.fill('#corpus-label', 'Too short');
+  await page.fill('#corpus-text', 'Only a handful of words here.');
+  await page.click('#corpus-add');
+  await page.waitForTimeout(300);
+  check(
+    'a short sample is refused with the word floor named',
+    /100 is the minimum/i.test(await page.evaluate(() => document.getElementById('corpus-msg').textContent))
+  );
+
+  // A genuine sample goes in and is screened clean.
+  const human = 'I got three quotes for panels last spring. Two came in around $22,000. The third was $14,500, which made me suspicious enough to actually read it. The cheap one used 380W panels instead of 440W and quietly assumed my roof got five peak sun hours a day. It gets about 3.9, which I checked against the NREL data for my county. So the production estimate was off by roughly a third, and the payback period they printed on the front page, nine years, was really more like fourteen. None of this was fraud exactly. It was just optimistic input data that nobody was going to check. I signed with the middle quote and eighteen months in, actual production is within 4% of what they projected, which is the only number I really cared about in the end.';
+  await page.fill('#corpus-label', 'Solar quote');
+  await page.fill('#corpus-text', human);
+  await page.click('#corpus-add');
+  await page.waitForTimeout(400);
+  const corpusAdded = await page.evaluate(() => ({
+    rows: document.querySelectorAll('#corpus-list .rule-row').length,
+    flagged: document.querySelector('#corpus-list .sample-screen')?.dataset.flagged,
+    status: document.getElementById('corpus-status').textContent,
+  }));
+  check('a genuine sample is accepted', corpusAdded.rows === 1, `${corpusAdded.rows} rows`);
+  check('a genuine sample screens clean', corpusAdded.flagged === 'false', `flagged=${corpusAdded.flagged}`);
+  check('readiness reports what is still missing', /of 4 samples|of 1500 words/.test(corpusAdded.status), corpusAdded.status);
+
+  // An assistant-drafted sample is flagged and excluded.
+  const assisted = 'I am writing to express my enthusiastic interest in the Senior Product Manager position at your esteemed organization. As a results-driven professional with a proven track record of success, I am confident that my unique blend of skills would make me a valuable asset to your team. Throughout my career I have consistently leveraged cutting-edge methodologies to deliver robust solutions that drive meaningful impact. Moreover, my ability to navigate complex stakeholder landscapes has allowed me to spearhead numerous cross-functional initiatives. Furthermore, I am passionate about fostering collaborative environments where innovation can truly flourish. It is important to note that my experience delving into data-driven decision making has been a testament to my commitment to excellence.';
+  await page.fill('#corpus-label', 'Cover letter');
+  await page.fill('#corpus-text', assisted);
+  await page.click('#corpus-add');
+  await page.waitForTimeout(500);
+  const screened = await page.evaluate(() => ({
+    msg: document.getElementById('corpus-msg').textContent,
+    flags: [...document.querySelectorAll('#corpus-list .sample-screen')].map((e) => e.dataset.flagged),
+    count: document.getElementById('corpus-count').textContent,
+  }));
+  check('an assistant-drafted sample is flagged on add', /flagged/i.test(screened.msg), screened.msg.slice(0, 80));
+  check('the flag names the risk', /assistant/i.test(screened.msg), screened.msg.slice(0, 120));
+  check('the flagged sample is excluded from the usable count', /1\//.test(screened.count), screened.count);
+  check('exactly one sample is marked flagged', screened.flags.filter((f) => f === 'true').length === 1);
+
+  // Export / import round trip.
+  const corpusExport = await page.evaluate(() => localStorage.getItem('proof-desk:corpus:v1'));
+  check('the corpus persists as importable JSON', /proof-desk\/corpus/.test(corpusExport || ''));
+
+  await page.click('#corpus-clear');
+  await page.waitForTimeout(300);
+  check('clearing empties the corpus', (await page.evaluate(() => document.querySelectorAll('#corpus-list .rule-row').length)) === 0);
+
+  await page.click('#corpus-paste');
+  await page.fill('#corpus-pastebox', corpusExport);
+  await page.click('#corpus-paste');
+  await page.waitForTimeout(400);
+  check('pasting a corpus imports it', (await page.evaluate(() => document.querySelectorAll('#corpus-list .rule-row').length)) === 2);
+
+  await page.click('#corpus-clear');
+  await page.click('#corpus-toggle');
+  await page.waitForTimeout(200);
+
   // ── House rules ─────────────────────────────────────────────────
   await page.fill(
     '#draft',

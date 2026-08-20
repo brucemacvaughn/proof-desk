@@ -433,6 +433,52 @@
   .stat dt { font-family: var(--mono); font-size: .625rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 .1875rem; }
   .stat dd { margin: 0; font-family: var(--mono); font-size: var(--step-0); font-variant-numeric: tabular-nums; }
 
+  /* ── Reference corpus ────────────────────────────────────────── */
+  .corpus-warn {
+    margin: 0;
+    padding: .75rem .875rem;
+    background: var(--sev-high-wash);
+    border-bottom: 1px solid var(--rule);
+    font-size: var(--step--1);
+    line-height: 1.5;
+    color: var(--ink);
+  }
+
+  .corpus-warn strong { color: var(--sev-high); }
+
+  .corpus-add { padding: .625rem .875rem 0; display: flex; flex-direction: column; gap: .375rem; }
+
+  .corpus-add input, .corpus-add textarea {
+    width: 100%;
+    padding: .375rem .5rem;
+    border: 1px solid var(--rule-strong);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--ink);
+    font-size: var(--step--1);
+    font-family: inherit;
+  }
+
+  .corpus-add textarea { min-height: 6rem; resize: vertical; }
+  .corpus-add .rule-io { padding: 0; border: 0; }
+
+  .sample-screen { font-family: var(--mono); font-size: .625rem; }
+  .sample-screen[data-flagged="true"] { color: var(--sev-high); font-weight: 600; }
+  .sample-screen[data-flagged="false"] { color: var(--sev-low); }
+
+  #corpus-pastebox {
+    width: 100%;
+    min-height: 6rem;
+    border: 0;
+    border-top: 1px solid var(--rule);
+    padding: .625rem .875rem;
+    font-family: var(--mono);
+    font-size: .6875rem;
+    background: var(--surface-2);
+    color: var(--ink);
+    resize: vertical;
+  }
+
   /* ── House rules editor ──────────────────────────────────────── */
   .rule-tools { display: flex; align-items: center; gap: .5rem; }
   .rules-intro { margin: 0; padding: .75rem .875rem 0; font-size: var(--step--1); color: var(--ink-2); }
@@ -662,6 +708,44 @@
           </div>
         </div>
         <dl class="stats" id="stats"></dl>
+      </section>
+
+      <section class="panel" aria-label="Reference corpus">
+        <div class="panel-head">
+          <span class="eyebrow">Your writing</span>
+          <div class="rule-tools">
+            <span class="eyebrow" id="corpus-count">none</span>
+            <button type="button" class="btn" id="corpus-toggle" aria-expanded="false">Set up</button>
+          </div>
+        </div>
+        <div id="corpus-editor" hidden>
+          <p class="corpus-warn">
+            <strong>Only paste writing you wrote yourself, unassisted.</strong>
+            If a sample was drafted with an assistant, the profile built from it describes
+            the assistant, not you — and every later comparison is confidently wrong in the
+            worst direction. Each sample is screened on the way in, but a screen is not proof.
+          </p>
+          <p class="rules-intro" id="corpus-status">Add 4 samples of at least 100 words each.</p>
+          <div class="rule-list" id="corpus-list"></div>
+          <div class="corpus-add">
+            <input type="text" id="corpus-label" placeholder="what is it? (e.g. blog post, email to Sam)" aria-label="Sample label">
+            <textarea id="corpus-text" placeholder="Paste your own writing here — at least 100 words." aria-label="Sample text"></textarea>
+            <div class="rule-io">
+              <button type="button" class="btn btn-primary" id="corpus-add">Add sample</button>
+              <button type="button" class="btn" id="corpus-upload">Upload a file</button>
+              <input type="file" id="corpus-file" accept=".pdf,.docx,.txt,.md,.markdown" hidden>
+            </div>
+          </div>
+          <div class="rule-io">
+            <button type="button" class="btn" id="corpus-copy">Copy JSON</button>
+            <button type="button" class="btn" id="corpus-import">Import file</button>
+            <input type="file" id="corpus-jsonfile" accept=".json,application/json" hidden>
+            <button type="button" class="btn" id="corpus-paste">Paste JSON</button>
+            <button type="button" class="btn" id="corpus-clear">Clear all</button>
+          </div>
+          <textarea id="corpus-pastebox" hidden placeholder="Paste an exported corpus here, then press Paste JSON" aria-label="Paste corpus JSON"></textarea>
+          <p class="rules-msg" id="corpus-msg"></p>
+        </div>
       </section>
 
       <section class="panel" aria-label="House rules">
@@ -4094,6 +4178,334 @@ const HouseRules = (() => {
 
 </script>
 <script>/**
+ * Reference corpus — samples of the writer's own unassisted writing.
+ *
+ * ── The constraint that shapes this whole module ────────────────────
+ *
+ * A voice fingerprint is only as honest as what it is built from. If a
+ * sample was drafted by an assistant, the fingerprint captures the
+ * assistant's cadence and vocabulary, and every later comparison is then
+ * confidently wrong: the tool would tell the writer their own voice is off
+ * when the draft is actually closer to them than the reference is.
+ *
+ * Asking nicely is not enough, so every sample is screened on the way in
+ * with the AI detector that already ships here. A sample that reads as
+ * AI-assisted or machine-written is flagged loudly and excluded from
+ * readiness until the writer either replaces it or overrides deliberately.
+ * That is a guard, not a verdict — the same false-positive caveats apply as
+ * everywhere else — but it catches the obvious case, which is the one that
+ * would silently poison the feature.
+ *
+ * ── Stage 1 scope ───────────────────────────────────────────────────
+ *
+ * This file stores and validates the corpus. It computes no fingerprint and
+ * changes no score; nothing else in the app behaves differently until a
+ * corpus exists. The thresholds a fingerprint will need (MIN_SAMPLES,
+ * MIN_TOTAL_WORDS, the confidence tiers) live here now so that ingest can
+ * report readiness honestly from the start.
+ *
+ * Zero dependencies. Node and browser; self-registers as global `Corpus`.
+ */
+
+const Corpus = (() => {
+  function deps() {
+    if (typeof module !== 'undefined' && module.exports && typeof require === 'function') {
+      const path = require('path');
+      return {
+        AIDetector: require(path.join(
+          __dirname, '..', '.claude', 'skills', 'avoid-ai-writing', 'detector', 'patterns.js'
+        )),
+        Scoring: require(path.join(__dirname, 'scoring.js')),
+      };
+    }
+    return {
+      AIDetector: typeof AIDetector !== 'undefined' ? AIDetector : globalThis.AIDetector,
+      Scoring: typeof Scoring !== 'undefined' ? Scoring : globalThis.Scoring,
+    };
+  }
+
+  // ── Thresholds ────────────────────────────────────────────────────
+
+  /** Fewer than this and one atypical piece dominates the fingerprint. */
+  const MIN_SAMPLES = 4;
+
+  /** What the UI asks for. More is allowed; this is the shape to aim at. */
+  const TARGET_SAMPLES = 6;
+
+  /** A ceiling, so a paste loop cannot fill storage. */
+  const MAX_SAMPLES = 12;
+
+  /** Under this a sample is too short for sentence statistics to mean much. */
+  const MIN_SAMPLE_WORDS = 100;
+
+  /** Guard against pasting a novel. */
+  const MAX_SAMPLE_WORDS = 20000;
+
+  /**
+   * Total words before a fingerprint is worth trusting. Sentence-length
+   * spread and per-word rates are noisy under a few thousand words; this is
+   * the floor below which the fingerprint must decline to be confident.
+   */
+  const MIN_TOTAL_WORDS = 1500;
+
+  /** Total words at which the fingerprint can claim full confidence. */
+  const STRONG_TOTAL_WORDS = 3000;
+
+  /** A sample scoring above this band reads as assisted and is quarantined. */
+  const MAX_CLEAN_BAND = 'some';
+
+  const FORMAT = 'proof-desk/corpus';
+  const VERSION = 1;
+
+  // ── Sample handling ───────────────────────────────────────────────
+
+  const countWords = (text) => {
+    const t = String(text || '').trim();
+    return t ? t.split(/\s+/).length : 0;
+  };
+
+  function slug(s) {
+    return (
+      String(s)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 40) || 'sample'
+    );
+  }
+
+  /**
+   * Validate and normalize one sample. Throws with a message meant for a
+   * person, since this is fed by paste and by file upload.
+   */
+  function normalizeSample(raw, index = 0) {
+    if (!raw || typeof raw !== 'object') throw new Error(`Sample ${index + 1} is not an object.`);
+    const text = typeof raw.text === 'string' ? raw.text.replace(/\r\n?/g, '\n').trim() : '';
+    if (!text) throw new Error(`Sample ${index + 1} has no text.`);
+
+    const words = countWords(text);
+    if (words < MIN_SAMPLE_WORDS) {
+      throw new Error(
+        `Sample ${index + 1} is ${words} words; ${MIN_SAMPLE_WORDS} is the minimum for it to say anything about your style.`
+      );
+    }
+    if (words > MAX_SAMPLE_WORDS) {
+      throw new Error(`Sample ${index + 1} is ${words} words; the limit is ${MAX_SAMPLE_WORDS}.`);
+    }
+
+    const label =
+      typeof raw.label === 'string' && raw.label.trim()
+        ? raw.label.trim().slice(0, 120)
+        : `Sample ${index + 1}`;
+
+    return {
+      id: typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : slug(label),
+      label,
+      text,
+      words,
+      // The writer's own assertion that this is unassisted. Recorded, not
+      // trusted on its own — screening runs regardless.
+      unassisted: raw.unassisted !== false,
+      // Set by the writer to keep a sample the screen flagged.
+      overrideScreen: raw.overrideScreen === true,
+      note: typeof raw.note === 'string' ? raw.note.trim().slice(0, 300) : '',
+    };
+  }
+
+  function normalize(samples) {
+    if (!Array.isArray(samples)) throw new Error('A corpus must be a list of samples.');
+    if (samples.length > MAX_SAMPLES) {
+      throw new Error(`Too many samples (limit ${MAX_SAMPLES}).`);
+    }
+    const out = samples.map(normalizeSample);
+
+    const seen = new Set();
+    for (const s of out) {
+      let id = s.id;
+      let n = 2;
+      while (seen.has(id)) id = `${s.id}-${n++}`;
+      s.id = id;
+      seen.add(id);
+    }
+    return out;
+  }
+
+  // ── Screening ─────────────────────────────────────────────────────
+
+  /**
+   * Run the AI detector over one sample. Returns the calibrated score, its
+   * band, and whether the sample should be treated as contaminated.
+   *
+   * This is the guard the whole feature rests on: a corpus built from
+   * assistant-drafted text produces a fingerprint of the assistant.
+   */
+  function screenSample(sample) {
+    const { AIDetector, Scoring } = deps();
+    if (!AIDetector || !Scoring) {
+      return { score: null, band: null, flagged: false, reason: 'screening unavailable' };
+    }
+    const prose = AIDetector.analyzeText(sample.text, { contextMode: 'general' });
+    const calibrated = Scoring.calibrate({
+      baseScore: prose.score,
+      issues: prose.issues || [],
+      wordCount: prose.stats.wordCount,
+    });
+
+    const order = Scoring.BANDS.map((b) => b.id);
+    const limit = order.indexOf(MAX_CLEAN_BAND);
+    const here = order.indexOf(calibrated.band.id);
+    const flagged = here > limit;
+
+    return {
+      score: calibrated.score,
+      band: calibrated.band,
+      flagged,
+      reason: flagged
+        ? `Scores ${calibrated.score}/100 — ${calibrated.band.label.toLowerCase()}. ` +
+          'If an assistant drafted this, the fingerprint will describe the assistant, not you.'
+        : '',
+    };
+  }
+
+  /** Screen every sample. Returns a new list with `screen` attached. */
+  function screen(samples) {
+    return normalize(samples).map((s) => ({ ...s, screen: screenSample(s) }));
+  }
+
+  // ── Readiness ─────────────────────────────────────────────────────
+
+  /**
+   * Whether the corpus can support a fingerprint, and if not, exactly what
+   * is missing. Reported rather than inferred, so a thin corpus says so.
+   */
+  function status(samples) {
+    let list;
+    try {
+      list = screen(samples || []);
+    } catch (err) {
+      return {
+        ok: false,
+        sampleCount: 0,
+        usableCount: 0,
+        totalWords: 0,
+        usableWords: 0,
+        confidence: 'none',
+        flagged: [],
+        reasons: [err.message],
+      };
+    }
+
+    const flagged = list.filter((s) => s.screen.flagged && !s.overrideScreen);
+    const usable = list.filter((s) => !s.screen.flagged || s.overrideScreen);
+    const totalWords = list.reduce((n, s) => n + s.words, 0);
+    const usableWords = usable.reduce((n, s) => n + s.words, 0);
+
+    const reasons = [];
+    if (usable.length < MIN_SAMPLES) {
+      reasons.push(
+        `${usable.length} of ${MIN_SAMPLES} samples. Add ${MIN_SAMPLES - usable.length} more.`
+      );
+    }
+    if (usableWords < MIN_TOTAL_WORDS) {
+      reasons.push(
+        `${usableWords} of ${MIN_TOTAL_WORDS} words. Sentence statistics are noise below that.`
+      );
+    }
+    for (const s of flagged) {
+      reasons.push(`"${s.label}" reads as AI-assisted and is excluded. ${s.screen.reason}`);
+    }
+
+    const ok = usable.length >= MIN_SAMPLES && usableWords >= MIN_TOTAL_WORDS;
+    const confidence = !ok
+      ? 'none'
+      : usableWords >= STRONG_TOTAL_WORDS && usable.length >= TARGET_SAMPLES
+        ? 'high'
+        : usableWords >= STRONG_TOTAL_WORDS || usable.length >= TARGET_SAMPLES
+          ? 'medium'
+          : 'low';
+
+    return {
+      ok,
+      sampleCount: list.length,
+      usableCount: usable.length,
+      totalWords,
+      usableWords,
+      confidence,
+      flagged: flagged.map((s) => ({ id: s.id, label: s.label, screen: s.screen })),
+      reasons,
+      samples: list,
+    };
+  }
+
+  /** The usable samples' text, joined — what a fingerprint will read. */
+  function usableText(samples) {
+    return screen(samples)
+      .filter((s) => !s.screen.flagged || s.overrideScreen)
+      .map((s) => s.text)
+      .join('\n\n');
+  }
+
+  // ── Import / export ───────────────────────────────────────────────
+
+  function toJSON(samples, { pretty = true } = {}) {
+    const doc = {
+      format: FORMAT,
+      version: VERSION,
+      note:
+        'Samples must be the writer\'s own unassisted writing. Anything drafted ' +
+        'with an assistant fingerprints the assistant, not the writer.',
+      samples: normalize(samples).map((s) => {
+        const out = { label: s.label, text: s.text };
+        if (s.note) out.note = s.note;
+        if (s.overrideScreen) out.overrideScreen = true;
+        if (s.unassisted === false) out.unassisted = false;
+        return out;
+      }),
+    };
+    return JSON.stringify(doc, null, pretty ? 2 : 0);
+  }
+
+  function fromJSON(json) {
+    let doc;
+    try {
+      doc = typeof json === 'string' ? JSON.parse(json) : json;
+    } catch (err) {
+      throw new Error(`That is not valid JSON: ${err.message}`);
+    }
+    if (Array.isArray(doc)) return normalize(doc);
+    if (!doc || typeof doc !== 'object') throw new Error('Expected a corpus object or a list.');
+    if (doc.format && doc.format !== FORMAT) {
+      throw new Error(`Unrecognized format "${doc.format}".`);
+    }
+    if (!Array.isArray(doc.samples)) throw new Error('Corpus has no "samples" list.');
+    return normalize(doc.samples);
+  }
+
+  return {
+    MIN_SAMPLES,
+    TARGET_SAMPLES,
+    MAX_SAMPLES,
+    MIN_SAMPLE_WORDS,
+    MAX_SAMPLE_WORDS,
+    MIN_TOTAL_WORDS,
+    STRONG_TOTAL_WORDS,
+    MAX_CLEAN_BAND,
+    FORMAT,
+    VERSION,
+    countWords,
+    normalize,
+    normalizeSample,
+    screen,
+    screenSample,
+    status,
+    usableText,
+    toJSON,
+    fromJSON,
+  };
+})();
+
+</script>
+<script>/**
  * Text extraction for uploaded documents.
  *
  * The scanner page is self-contained — the CSP admits no CDN, so pdf.js is
@@ -5432,6 +5844,202 @@ const ScanEngine = (() => {
       setView('draft');
     }
 
+    // ── Reference corpus ─────────────────────────────────────────
+    //
+    // Stage 1: ingest only. Samples are stored, screened and reported;
+    // nothing else in the app behaves differently yet.
+    const CORPUS_KEY = 'proof-desk:corpus:v1';
+    let samples = loadCorpus();
+
+    function loadCorpus() {
+      try {
+        const saved = localStorage.getItem(CORPUS_KEY);
+        if (saved) return Corpus.fromJSON(saved);
+      } catch (err) {
+        console.warn('corpus: could not restore —', err.message);
+      }
+      return [];
+    }
+
+    function saveCorpus() {
+      try {
+        localStorage.setItem(CORPUS_KEY, Corpus.toJSON(samples));
+      } catch {
+        sayCorpus('Could not save — samples apply for this session only.', 'err');
+      }
+    }
+
+    function sayCorpus(text, kind) {
+      const el = $('corpus-msg');
+      el.textContent = text || '';
+      if (kind) el.dataset.kind = kind;
+      else delete el.dataset.kind;
+    }
+
+    function renderCorpus() {
+      const st = Corpus.status(samples);
+
+      $('corpus-count').textContent = samples.length
+        ? `${st.usableCount}/${Corpus.MIN_SAMPLES} · ${st.usableWords}w`
+        : 'none';
+
+      $('corpus-status').innerHTML = st.ok
+        ? `<b>Ready.</b> ${st.usableCount} samples, ${st.usableWords} words, ` +
+          `confidence ${esc(st.confidence)}.`
+        : st.reasons.length
+          ? esc(st.reasons[0])
+          : `Add ${Corpus.MIN_SAMPLES} samples of at least ${Corpus.MIN_SAMPLE_WORDS} words each.`;
+
+      $('corpus-list').innerHTML = (st.samples || [])
+        .map((s, i) => {
+          const flagged = s.screen.flagged && !s.overrideScreen;
+          return (
+            `<div class="rule-row${flagged ? ' is-off' : ''}">` +
+            `<span class="rule-pat">${esc(s.label)}</span>` +
+            `<span class="rule-actions">` +
+            (s.screen.flagged
+              ? `<button type="button" class="btn" data-keep="${i}">${s.overrideScreen ? 'Excluded' : 'Keep'}</button>`
+              : '') +
+            `<button type="button" class="btn" data-drop="${i}" aria-label="Remove ${esc(s.label)}">×</button>` +
+            `</span>` +
+            `<span class="rule-meta">${s.words} words · ` +
+            `<span class="sample-screen" data-flagged="${!!s.screen.flagged}">` +
+            (s.screen.score === null
+              ? 'not screened'
+              : `AI ${s.screen.score}/100`) +
+            `</span>` +
+            (flagged ? ` — excluded. ${esc(s.screen.reason)}` : '') +
+            `</span>` +
+            `</div>`
+          );
+        })
+        .join('');
+
+      $('corpus-list').querySelectorAll('[data-drop]').forEach((b) =>
+        b.addEventListener('click', () => {
+          samples.splice(Number(b.dataset.drop), 1);
+          saveCorpus();
+          renderCorpus();
+        })
+      );
+      $('corpus-list').querySelectorAll('[data-keep]').forEach((b) =>
+        b.addEventListener('click', () => {
+          const s = samples[Number(b.dataset.keep)];
+          s.overrideScreen = !s.overrideScreen;
+          saveCorpus();
+          renderCorpus();
+          sayCorpus(
+            s.overrideScreen
+              ? 'Kept against the screen. If an assistant wrote it, the profile will be wrong.'
+              : 'Excluded again.',
+            s.overrideScreen ? 'err' : 'ok'
+          );
+        })
+      );
+    }
+
+    $('corpus-toggle').addEventListener('click', () => {
+      const open = $('corpus-editor').hidden;
+      $('corpus-editor').hidden = !open;
+      $('corpus-toggle').setAttribute('aria-expanded', String(open));
+      $('corpus-toggle').textContent = open ? 'Done' : 'Set up';
+    });
+
+    function addSample(label, text) {
+      try {
+        const sample = Corpus.normalizeSample({ label, text }, samples.length);
+        if (samples.length >= Corpus.MAX_SAMPLES) {
+          return sayCorpus(`That is the ${Corpus.MAX_SAMPLES}-sample limit.`, 'err');
+        }
+        samples.push(sample);
+        saveCorpus();
+        renderCorpus();
+        $('corpus-label').value = '';
+        $('corpus-text').value = '';
+        const screened = Corpus.screenSample(sample);
+        sayCorpus(
+          screened.flagged
+            ? `Added, but flagged: ${screened.reason}`
+            : `Added "${sample.label}" — ${sample.words} words.`,
+          screened.flagged ? 'err' : 'ok'
+        );
+      } catch (err) {
+        sayCorpus(err.message, 'err');
+      }
+    }
+
+    $('corpus-add').addEventListener('click', () =>
+      addSample($('corpus-label').value.trim(), $('corpus-text').value)
+    );
+
+    $('corpus-upload').addEventListener('click', () => $('corpus-file').click());
+
+    $('corpus-file').addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      sayCorpus(`Reading ${file.name}…`);
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const result = await Extract.extractText(bytes, file.name);
+        addSample($('corpus-label').value.trim() || file.name, result.text);
+      } catch (err) {
+        sayCorpus(err.message, 'err');
+      }
+    });
+
+    $('corpus-copy').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(Corpus.toJSON(samples));
+        sayCorpus('Corpus copied.', 'ok');
+      } catch {
+        sayCorpus('Could not reach the clipboard.', 'err');
+      }
+    });
+
+    $('corpus-import').addEventListener('click', () => $('corpus-jsonfile').click());
+
+    $('corpus-jsonfile').addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      try {
+        samples = Corpus.fromJSON(await file.text());
+        saveCorpus();
+        renderCorpus();
+        sayCorpus(`Imported ${samples.length} samples.`, 'ok');
+      } catch (err) {
+        sayCorpus(err.message, 'err');
+      }
+    });
+
+    $('corpus-paste').addEventListener('click', () => {
+      const box = $('corpus-pastebox');
+      if (box.hidden) {
+        box.hidden = false;
+        box.focus();
+        sayCorpus('Paste a corpus, then press Paste JSON again.');
+        return;
+      }
+      try {
+        samples = Corpus.fromJSON(box.value);
+        saveCorpus();
+        renderCorpus();
+        box.hidden = true;
+        box.value = '';
+        sayCorpus(`Imported ${samples.length} samples.`, 'ok');
+      } catch (err) {
+        sayCorpus(err.message, 'err');
+      }
+    });
+
+    $('corpus-clear').addEventListener('click', () => {
+      samples = [];
+      saveCorpus();
+      renderCorpus();
+      sayCorpus('Corpus cleared.', 'ok');
+    });
+
     // ── House rules ──────────────────────────────────────────────
     //
     // Persisted in localStorage so a browser keeps them, and exportable as
@@ -5900,6 +6508,7 @@ const ScanEngine = (() => {
 
     buildScale();
     renderRules();
+    renderCorpus();
 
     // Open on the AI essay so the page explains itself, but stay in Draft:
     // the proof view is read-only, and landing there means a first-time

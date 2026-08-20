@@ -29,6 +29,7 @@ const ScanEngine = require('./engine.js');
 const Fixer = require('./fixer.js');
 const Scoring = require('./scoring.js');
 const HouseRules = require('./house-rules.js');
+const Corpus = require('./corpus.js');
 const os = require('os');
 
 // ═══ Terminal helpers ════════════════════════════════════════════════
@@ -70,6 +71,8 @@ function parseArgs(argv) {
     else if (a === '--fix') opts.fix = true;
     else if (a === '--rules') opts.rulesPath = argv[++i];
     else if (a === '--no-house') opts.noHouse = true;
+    else if (a === '--corpus') opts.corpusPath = argv[++i];
+    else if (a === '--corpus-status') opts.corpusStatus = true;
     else if (a === '--help' || a === '-h') opts.help = true;
     else if (!a.startsWith('-')) opts.file = a;
   }
@@ -87,6 +90,8 @@ Options
   --context <general|technical> suppress flags legitimate in code-adjacent prose
   --rules <file.json>          house rules to use (see resolution order below)
   --no-house                   skip house rules entirely
+  --corpus <file.json>         reference corpus of your own unassisted writing
+  --corpus-status              report corpus readiness and exit
   --fix                        print the draft with the definite fixes applied
   --fail-over <n>              exit 1 when the AI score is above n
   --json                       machine-readable output
@@ -99,6 +104,15 @@ House rules are looked up in this order, first hit wins:
   ./.proof-desk-rules.json
   ~/.proof-desk/house-rules.json
   the built-in defaults
+
+The reference corpus is looked up the same way:
+  --corpus <file>
+  $PROOF_DESK_CORPUS
+  ./.proof-desk-corpus.json
+  ~/.proof-desk/corpus.json
+
+Every corpus sample must be your own unassisted writing. A sample drafted
+with an assistant fingerprints the assistant, not you.
 `;
 
 // ═══ House rules ════════════════════════════════════════════════════
@@ -138,6 +152,81 @@ function loadHouseRules(opts) {
     process.stderr.write(`scan: ignoring ${found}: ${err.message}\n`);
     return { rules: undefined, source: 'built-in defaults' };
   }
+}
+
+// ═══ Reference corpus ═══════════════════════════════════════════════
+
+function resolveCorpusPath(explicit) {
+  return [
+    explicit,
+    process.env.PROOF_DESK_CORPUS,
+    path.join(process.cwd(), '.proof-desk-corpus.json'),
+    path.join(os.homedir(), '.proof-desk', 'corpus.json'),
+  ]
+    .filter(Boolean)
+    .find((p) => {
+      try {
+        return fs.statSync(p).isFile();
+      } catch {
+        return false;
+      }
+    });
+}
+
+function loadCorpus(opts) {
+  const found = resolveCorpusPath(opts.corpusPath);
+  if (!found) return null;
+  try {
+    return { samples: Corpus.fromJSON(fs.readFileSync(found, 'utf8')), source: found };
+  } catch (err) {
+    if (opts.corpusPath || opts.corpusStatus) {
+      process.stderr.write(`scan: cannot read corpus from ${found}: ${err.message}\n`);
+      process.exit(2);
+    }
+    process.stderr.write(`scan: ignoring ${found}: ${err.message}\n`);
+    return null;
+  }
+}
+
+function renderCorpus(loaded) {
+  const out = [];
+  if (!loaded) {
+    out.push('');
+    out.push(`  ${dim('No reference corpus. Add one with --corpus <file.json>.')}`);
+    out.push(
+      `  ${dim('Samples must be your own unassisted writing — see --help.')}`
+    );
+    out.push('');
+    return out.join('\n');
+  }
+
+  const s = Corpus.status(loaded.samples);
+  const ok = s.ok ? green : yellow;
+  out.push('');
+  out.push(`  ${bold('Reference corpus')} ${dim(loaded.source)}`);
+  out.push(
+    `  ${ok(bold(s.usableCount + ' usable sample' + (s.usableCount === 1 ? '' : 's')))} ` +
+      `${dim('of')} ${dim(String(s.sampleCount))} ${dim('·')} ` +
+      `${ok(bold(String(s.usableWords)))} ${dim('words')} ${dim('·')} ` +
+      `${dim('confidence')} ${ok(s.confidence)}`
+  );
+  if (s.ok) {
+    out.push(`  ${green('Ready for a fingerprint.')}`);
+  } else {
+    out.push(`  ${yellow('Not yet usable:')}`);
+    // Flagged samples get their own line below with the warning marker, so
+    // they are dropped from this list rather than printed twice.
+    const flaggedLabels = new Set(s.flagged.map((f) => f.label));
+    for (const r of s.reasons) {
+      if ([...flaggedLabels].some((l) => r.startsWith(`"${l}"`))) continue;
+      out.push(`    ${dim('· ' + r)}`);
+    }
+  }
+  for (const f of s.flagged) {
+    out.push(`  ${red('⚠ ' + f.label)} ${dim('— ' + f.screen.reason)}`);
+  }
+  out.push('');
+  return out.join('\n');
 }
 
 // ═══ Scanning ═══════════════════════════════════════════════════════
@@ -256,12 +345,15 @@ function main() {
 
   let text;
   try {
-    text = readInput(opts.file);
+    // --corpus-status with no file reports on the corpus alone and must not
+    // block on stdin. Checking isTTY was wrong: with output redirected stdin
+    // is not a TTY either, and the read failed with EAGAIN.
+    text = opts.corpusStatus && !opts.file ? '' : readInput(opts.file);
   } catch (err) {
     process.stderr.write(`scan: cannot read ${opts.file}: ${err.message}\n`);
     return 2;
   }
-  if (text === null) {
+  if (text === null && !opts.corpusStatus) {
     process.stdout.write(HELP);
     return 2;
   }
@@ -269,6 +361,12 @@ function main() {
   if (!['auto', 'essay', 'resume'].includes(opts.mode)) {
     process.stderr.write(`scan: unknown mode "${opts.mode}" — use auto, essay, or resume\n`);
     return 2;
+  }
+
+  const corpus = loadCorpus(opts);
+  if (opts.corpusStatus) {
+    process.stdout.write(renderCorpus(corpus));
+    return corpus && Corpus.status(corpus.samples).ok ? 0 : 1;
   }
 
   const house = loadHouseRules(opts);
@@ -294,6 +392,7 @@ function main() {
   } else {
     if (opts.file) process.stdout.write(`\n  ${dim(path.basename(opts.file))} ${dim('·')} ${dim(result.mode + ' mode')}\n`);
     process.stdout.write(render(result, opts));
+    if (corpus && !opts.quiet) process.stdout.write(renderCorpus(corpus));
   }
 
   if (opts.failOver !== null && result.aiScore > opts.failOver) return 1;

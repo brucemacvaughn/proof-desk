@@ -37,6 +37,7 @@ test('both engines and the orchestrator are inlined', () => {
   assert.ok(html.includes('const Extract'), 'extractor missing');
   assert.ok(html.includes('const Scoring'), 'scoring/bands missing');
   assert.ok(html.includes('const HouseRules'), 'house rules missing');
+  assert.ok(html.includes('const Corpus'), 'corpus missing');
 });
 
 test('samples are inlined', () => {
@@ -89,7 +90,7 @@ test('every script block in the bundle compiles', () => {
   // `new Function` compiles without executing — which is exactly what catches
   // a syntax error introduced by a bad injection.
   const blocks = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
-  assert.ok(blocks.length >= 8, `expected 8 script blocks, got ${blocks.length}`);
+  assert.ok(blocks.length >= 9, `expected 9 script blocks, got ${blocks.length}`);
   blocks.forEach((code, i) => {
     assert.doesNotThrow(() => new Function(code), `script block ${i} has a syntax error`);
   });
@@ -108,9 +109,10 @@ test('the built page evaluates its engines without a DOM', () => {
       b.includes('const Extract') ||
       b.includes('const Scoring') ||
       b.includes('const HouseRules') ||
+      b.includes('const Corpus') ||
       b.includes('const ScanEngine')
   );
-  assert.strictEqual(engineBlocks.length, 7, `expected 7 engine blocks, got ${engineBlocks.length}`);
+  assert.strictEqual(engineBlocks.length, 8, `expected 8 engine blocks, got ${engineBlocks.length}`);
 
   const sandbox = { module: undefined, console };
   vm.createContext(sandbox);

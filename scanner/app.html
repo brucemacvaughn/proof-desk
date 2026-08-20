@@ -433,6 +433,52 @@
   .stat dt { font-family: var(--mono); font-size: .625rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 .1875rem; }
   .stat dd { margin: 0; font-family: var(--mono); font-size: var(--step-0); font-variant-numeric: tabular-nums; }
 
+  /* ── Reference corpus ────────────────────────────────────────── */
+  .corpus-warn {
+    margin: 0;
+    padding: .75rem .875rem;
+    background: var(--sev-high-wash);
+    border-bottom: 1px solid var(--rule);
+    font-size: var(--step--1);
+    line-height: 1.5;
+    color: var(--ink);
+  }
+
+  .corpus-warn strong { color: var(--sev-high); }
+
+  .corpus-add { padding: .625rem .875rem 0; display: flex; flex-direction: column; gap: .375rem; }
+
+  .corpus-add input, .corpus-add textarea {
+    width: 100%;
+    padding: .375rem .5rem;
+    border: 1px solid var(--rule-strong);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--ink);
+    font-size: var(--step--1);
+    font-family: inherit;
+  }
+
+  .corpus-add textarea { min-height: 6rem; resize: vertical; }
+  .corpus-add .rule-io { padding: 0; border: 0; }
+
+  .sample-screen { font-family: var(--mono); font-size: .625rem; }
+  .sample-screen[data-flagged="true"] { color: var(--sev-high); font-weight: 600; }
+  .sample-screen[data-flagged="false"] { color: var(--sev-low); }
+
+  #corpus-pastebox {
+    width: 100%;
+    min-height: 6rem;
+    border: 0;
+    border-top: 1px solid var(--rule);
+    padding: .625rem .875rem;
+    font-family: var(--mono);
+    font-size: .6875rem;
+    background: var(--surface-2);
+    color: var(--ink);
+    resize: vertical;
+  }
+
   /* ── House rules editor ──────────────────────────────────────── */
   .rule-tools { display: flex; align-items: center; gap: .5rem; }
   .rules-intro { margin: 0; padding: .75rem .875rem 0; font-size: var(--step--1); color: var(--ink-2); }
@@ -664,6 +710,44 @@
         <dl class="stats" id="stats"></dl>
       </section>
 
+      <section class="panel" aria-label="Reference corpus">
+        <div class="panel-head">
+          <span class="eyebrow">Your writing</span>
+          <div class="rule-tools">
+            <span class="eyebrow" id="corpus-count">none</span>
+            <button type="button" class="btn" id="corpus-toggle" aria-expanded="false">Set up</button>
+          </div>
+        </div>
+        <div id="corpus-editor" hidden>
+          <p class="corpus-warn">
+            <strong>Only paste writing you wrote yourself, unassisted.</strong>
+            If a sample was drafted with an assistant, the profile built from it describes
+            the assistant, not you — and every later comparison is confidently wrong in the
+            worst direction. Each sample is screened on the way in, but a screen is not proof.
+          </p>
+          <p class="rules-intro" id="corpus-status">Add 4 samples of at least 100 words each.</p>
+          <div class="rule-list" id="corpus-list"></div>
+          <div class="corpus-add">
+            <input type="text" id="corpus-label" placeholder="what is it? (e.g. blog post, email to Sam)" aria-label="Sample label">
+            <textarea id="corpus-text" placeholder="Paste your own writing here — at least 100 words." aria-label="Sample text"></textarea>
+            <div class="rule-io">
+              <button type="button" class="btn btn-primary" id="corpus-add">Add sample</button>
+              <button type="button" class="btn" id="corpus-upload">Upload a file</button>
+              <input type="file" id="corpus-file" accept=".pdf,.docx,.txt,.md,.markdown" hidden>
+            </div>
+          </div>
+          <div class="rule-io">
+            <button type="button" class="btn" id="corpus-copy">Copy JSON</button>
+            <button type="button" class="btn" id="corpus-import">Import file</button>
+            <input type="file" id="corpus-jsonfile" accept=".json,application/json" hidden>
+            <button type="button" class="btn" id="corpus-paste">Paste JSON</button>
+            <button type="button" class="btn" id="corpus-clear">Clear all</button>
+          </div>
+          <textarea id="corpus-pastebox" hidden placeholder="Paste an exported corpus here, then press Paste JSON" aria-label="Paste corpus JSON"></textarea>
+          <p class="rules-msg" id="corpus-msg"></p>
+        </div>
+      </section>
+
       <section class="panel" aria-label="House rules">
         <div class="panel-head">
           <span class="eyebrow">House rules</span>
@@ -727,6 +811,7 @@
 <script>/*INJECT:resume-rules*/</script>
 <script>/*INJECT:scoring*/</script>
 <script>/*INJECT:house-rules*/</script>
+<script>/*INJECT:corpus*/</script>
 <script>/*INJECT:extract*/</script>
 <script>/*INJECT:fixer*/</script>
 <script>/*INJECT:engine*/</script>
@@ -939,6 +1024,202 @@
         '<p class="empty"><strong>Nothing yet</strong>Paste a draft, or load one of the samples above.</p>';
       setView('draft');
     }
+
+    // ── Reference corpus ─────────────────────────────────────────
+    //
+    // Stage 1: ingest only. Samples are stored, screened and reported;
+    // nothing else in the app behaves differently yet.
+    const CORPUS_KEY = 'proof-desk:corpus:v1';
+    let samples = loadCorpus();
+
+    function loadCorpus() {
+      try {
+        const saved = localStorage.getItem(CORPUS_KEY);
+        if (saved) return Corpus.fromJSON(saved);
+      } catch (err) {
+        console.warn('corpus: could not restore —', err.message);
+      }
+      return [];
+    }
+
+    function saveCorpus() {
+      try {
+        localStorage.setItem(CORPUS_KEY, Corpus.toJSON(samples));
+      } catch {
+        sayCorpus('Could not save — samples apply for this session only.', 'err');
+      }
+    }
+
+    function sayCorpus(text, kind) {
+      const el = $('corpus-msg');
+      el.textContent = text || '';
+      if (kind) el.dataset.kind = kind;
+      else delete el.dataset.kind;
+    }
+
+    function renderCorpus() {
+      const st = Corpus.status(samples);
+
+      $('corpus-count').textContent = samples.length
+        ? `${st.usableCount}/${Corpus.MIN_SAMPLES} · ${st.usableWords}w`
+        : 'none';
+
+      $('corpus-status').innerHTML = st.ok
+        ? `<b>Ready.</b> ${st.usableCount} samples, ${st.usableWords} words, ` +
+          `confidence ${esc(st.confidence)}.`
+        : st.reasons.length
+          ? esc(st.reasons[0])
+          : `Add ${Corpus.MIN_SAMPLES} samples of at least ${Corpus.MIN_SAMPLE_WORDS} words each.`;
+
+      $('corpus-list').innerHTML = (st.samples || [])
+        .map((s, i) => {
+          const flagged = s.screen.flagged && !s.overrideScreen;
+          return (
+            `<div class="rule-row${flagged ? ' is-off' : ''}">` +
+            `<span class="rule-pat">${esc(s.label)}</span>` +
+            `<span class="rule-actions">` +
+            (s.screen.flagged
+              ? `<button type="button" class="btn" data-keep="${i}">${s.overrideScreen ? 'Excluded' : 'Keep'}</button>`
+              : '') +
+            `<button type="button" class="btn" data-drop="${i}" aria-label="Remove ${esc(s.label)}">×</button>` +
+            `</span>` +
+            `<span class="rule-meta">${s.words} words · ` +
+            `<span class="sample-screen" data-flagged="${!!s.screen.flagged}">` +
+            (s.screen.score === null
+              ? 'not screened'
+              : `AI ${s.screen.score}/100`) +
+            `</span>` +
+            (flagged ? ` — excluded. ${esc(s.screen.reason)}` : '') +
+            `</span>` +
+            `</div>`
+          );
+        })
+        .join('');
+
+      $('corpus-list').querySelectorAll('[data-drop]').forEach((b) =>
+        b.addEventListener('click', () => {
+          samples.splice(Number(b.dataset.drop), 1);
+          saveCorpus();
+          renderCorpus();
+        })
+      );
+      $('corpus-list').querySelectorAll('[data-keep]').forEach((b) =>
+        b.addEventListener('click', () => {
+          const s = samples[Number(b.dataset.keep)];
+          s.overrideScreen = !s.overrideScreen;
+          saveCorpus();
+          renderCorpus();
+          sayCorpus(
+            s.overrideScreen
+              ? 'Kept against the screen. If an assistant wrote it, the profile will be wrong.'
+              : 'Excluded again.',
+            s.overrideScreen ? 'err' : 'ok'
+          );
+        })
+      );
+    }
+
+    $('corpus-toggle').addEventListener('click', () => {
+      const open = $('corpus-editor').hidden;
+      $('corpus-editor').hidden = !open;
+      $('corpus-toggle').setAttribute('aria-expanded', String(open));
+      $('corpus-toggle').textContent = open ? 'Done' : 'Set up';
+    });
+
+    function addSample(label, text) {
+      try {
+        const sample = Corpus.normalizeSample({ label, text }, samples.length);
+        if (samples.length >= Corpus.MAX_SAMPLES) {
+          return sayCorpus(`That is the ${Corpus.MAX_SAMPLES}-sample limit.`, 'err');
+        }
+        samples.push(sample);
+        saveCorpus();
+        renderCorpus();
+        $('corpus-label').value = '';
+        $('corpus-text').value = '';
+        const screened = Corpus.screenSample(sample);
+        sayCorpus(
+          screened.flagged
+            ? `Added, but flagged: ${screened.reason}`
+            : `Added "${sample.label}" — ${sample.words} words.`,
+          screened.flagged ? 'err' : 'ok'
+        );
+      } catch (err) {
+        sayCorpus(err.message, 'err');
+      }
+    }
+
+    $('corpus-add').addEventListener('click', () =>
+      addSample($('corpus-label').value.trim(), $('corpus-text').value)
+    );
+
+    $('corpus-upload').addEventListener('click', () => $('corpus-file').click());
+
+    $('corpus-file').addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      sayCorpus(`Reading ${file.name}…`);
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const result = await Extract.extractText(bytes, file.name);
+        addSample($('corpus-label').value.trim() || file.name, result.text);
+      } catch (err) {
+        sayCorpus(err.message, 'err');
+      }
+    });
+
+    $('corpus-copy').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(Corpus.toJSON(samples));
+        sayCorpus('Corpus copied.', 'ok');
+      } catch {
+        sayCorpus('Could not reach the clipboard.', 'err');
+      }
+    });
+
+    $('corpus-import').addEventListener('click', () => $('corpus-jsonfile').click());
+
+    $('corpus-jsonfile').addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      try {
+        samples = Corpus.fromJSON(await file.text());
+        saveCorpus();
+        renderCorpus();
+        sayCorpus(`Imported ${samples.length} samples.`, 'ok');
+      } catch (err) {
+        sayCorpus(err.message, 'err');
+      }
+    });
+
+    $('corpus-paste').addEventListener('click', () => {
+      const box = $('corpus-pastebox');
+      if (box.hidden) {
+        box.hidden = false;
+        box.focus();
+        sayCorpus('Paste a corpus, then press Paste JSON again.');
+        return;
+      }
+      try {
+        samples = Corpus.fromJSON(box.value);
+        saveCorpus();
+        renderCorpus();
+        box.hidden = true;
+        box.value = '';
+        sayCorpus(`Imported ${samples.length} samples.`, 'ok');
+      } catch (err) {
+        sayCorpus(err.message, 'err');
+      }
+    });
+
+    $('corpus-clear').addEventListener('click', () => {
+      samples = [];
+      saveCorpus();
+      renderCorpus();
+      sayCorpus('Corpus cleared.', 'ok');
+    });
 
     // ── House rules ──────────────────────────────────────────────
     //
@@ -1408,6 +1689,7 @@
 
     buildScale();
     renderRules();
+    renderCorpus();
 
     // Open on the AI essay so the page explains itself, but stay in Draft:
     // the proof view is read-only, and landing there means a first-time

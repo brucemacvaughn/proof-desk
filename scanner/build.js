@@ -22,6 +22,7 @@ const SOURCES = {
   'resume-rules': path.join(__dirname, 'resume-rules.js'),
   scoring: path.join(__dirname, 'scoring.js'),
   'house-rules': path.join(__dirname, 'house-rules.js'),
+  corpus: path.join(__dirname, 'corpus.js'),
   extract: path.join(__dirname, 'extract.js'),
   fixer: path.join(__dirname, 'fixer.js'),
   engine: path.join(__dirname, 'engine.js'),
