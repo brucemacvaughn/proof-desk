@@ -173,10 +173,65 @@ test('the absence finding reads like the specification', () => {
 
 test('a word the writer does use is not reported', () => {
   const r = compare('fixtures/ai-cover-letter.md');
-  const corpus = OWN.map(read).join(' ').toLowerCase();
+  const corpus = OWN.map(read).join(' ');
   for (const f of r.findings.filter((x) => x.metric === 'absentWords')) {
-    assert.ok(!corpus.includes(f.word.toLowerCase()), `"${f.word}" is used but reported absent`);
+    const entry = F.absenceFor(f.word);
+    assert.ok(entry, `"${f.word}" is reported but is not a candidate`);
+    assert.strictEqual(
+      F.absenceCount(entry, corpus),
+      0,
+      `"${f.word}" is used by the writer but reported absent`
+    );
   }
+});
+
+test('a phrase in the draft is reported, not just single words', () => {
+  const draft = rep(
+    'We ran the rollout at scale and it is worth noting how far it went. ' +
+      'The team will lean into the load-bearing parts of the plan next. ',
+    12
+  );
+  const r = V.compare(draft, PROFILE);
+  const reported = new Set(
+    r.findings.filter((f) => f.metric === 'absentWords').map((f) => f.word)
+  );
+  for (const phrase of ['at scale', 'worth noting', 'lean into']) {
+    // Only assert on candidates the corpus genuinely never uses.
+    if (!PROFILE.metrics.absentWords.absent.includes(phrase)) continue;
+    assert.ok(reported.has(phrase), `"${phrase}" is in the draft but was not reported`);
+  }
+});
+
+test('"surface" in the draft is judged as a verb, not as a noun', () => {
+  const absent = PROFILE.metrics.absentWords;
+  if (!absent.available || !absent.absent.includes('surface (as a verb)')) return;
+  const hit = (text) =>
+    V.compare(rep(text, 12), PROFILE).findings.some(
+      (f) => f.metric === 'absentWords' && f.word === 'surface (as a verb)'
+    );
+  assert.ok(
+    hit('We should surface the risks before the review closes and say so plainly. '),
+    'the verb in the draft was missed'
+  );
+  assert.ok(
+    !hit('The surface area of the tank was measured again on the second pass. '),
+    'the noun in the draft was flagged'
+  );
+});
+
+test('a qualified candidate is quoted without its qualifier', () => {
+  const absent = PROFILE.metrics.absentWords;
+  if (!absent.available || !absent.absent.includes('surface (as a verb)')) return;
+  const r = V.compare(
+    rep('We should surface the risks before the review closes and say so plainly. ', 12),
+    PROFILE
+  );
+  const f = r.findings.find((x) => x.word === 'surface (as a verb)');
+  assert.ok(f);
+  assert.ok(
+    f.text.startsWith('you never write "surface" (as a verb) across '),
+    `the qualifier belongs outside the quotes: ${f.text}`
+  );
 });
 
 test('every finding carries the band it was judged against', () => {

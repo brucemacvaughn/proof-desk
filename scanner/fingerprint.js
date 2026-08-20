@@ -171,25 +171,175 @@ const Fingerprint = (() => {
   const BASELINE_FLOOR = 20;
 
   /**
-   * Words whose ABSENCE is worth reporting. Absence of an obscure word means
-   * nothing; absence of "furthermore" across three thousand words is a real
-   * fact about a writer. Everything here is common enough that a writer who
-   * uses it at all would have used it by then.
+   * Words and phrases whose ABSENCE is worth reporting.
+   *
+   * Absence of an obscure word means nothing; absence of "furthermore" across
+   * three thousand words is a real fact about a writer. Everything here is
+   * common enough that someone who uses it at all would have used it by then.
+   *
+   * Entries are objects rather than bare strings because the list needs three
+   * kinds of check:
+   *
+   *   word    (default) whole word, so "adjacent" does not fire inside
+   *           "adjacently" and "nuance" does not match "nuanced".
+   *   phrase  a multi-word expression — "at scale", "lean into",
+   *           "worth noting" — which a word list cannot express at all.
+   *   regex   where the plain word is ambiguous. "surface" is an ordinary
+   *           noun ("the road surface"); only the verb is a tell, so the
+   *           pattern takes the -ed/-ing forms plus "surface" followed by an
+   *           object. Same approach as the leverage house rule.
    */
   const ABSENCE_CANDIDATES = [
-    'furthermore', 'moreover', 'additionally', 'consequently', 'subsequently',
-    'nevertheless', 'nonetheless', 'notwithstanding', 'albeit', 'whilst',
-    'amongst', 'hence', 'thereby', 'therein', 'whereby', 'heretofore',
-    'utilize', 'leverage', 'delve', 'robust', 'myriad', 'plethora', 'paradigm',
-    'holistic', 'synergy', 'seamless', 'pivotal', 'crucial', 'vital',
-    'essentially', 'fundamentally', 'ultimately', 'arguably', 'undoubtedly',
-    'indeed', 'certainly', 'obviously', 'clearly', 'notably', 'importantly',
-    'significantly', 'substantially', 'considerably', 'remarkably',
-    'furthermore', 'thus', 'therefore', 'accordingly', 'likewise',
-    'comprehensive', 'innovative', 'cutting-edge', 'state-of-the-art',
-    'landscape', 'ecosystem', 'framework', 'methodology', 'stakeholder',
-    'actionable', 'impactful', 'transformative', 'unprecedented',
+    // Formal connectives
+    { pattern: 'furthermore' },
+    { pattern: 'moreover' },
+    { pattern: 'additionally' },
+    { pattern: 'consequently' },
+    { pattern: 'subsequently' },
+    { pattern: 'nevertheless' },
+    { pattern: 'nonetheless' },
+    { pattern: 'notwithstanding' },
+    { pattern: 'albeit' },
+    { pattern: 'whilst' },
+    { pattern: 'amongst' },
+    { pattern: 'hence' },
+    { pattern: 'thereby' },
+    { pattern: 'therein' },
+    { pattern: 'whereby' },
+    { pattern: 'heretofore' },
+    { pattern: 'insofar' },
+    { pattern: 'thus' },
+    { pattern: 'therefore' },
+    { pattern: 'accordingly' },
+    { pattern: 'likewise' },
+
+    // Intensifiers and hedges
+    { pattern: 'essentially' },
+    { pattern: 'fundamentally' },
+    { pattern: 'ultimately' },
+    { pattern: 'arguably' },
+    { pattern: 'undoubtedly' },
+    { pattern: 'indeed' },
+    { pattern: 'certainly' },
+    { pattern: 'obviously' },
+    { pattern: 'clearly' },
+    { pattern: 'notably' },
+    { pattern: 'importantly' },
+    { pattern: 'significantly' },
+    { pattern: 'substantially' },
+    { pattern: 'considerably' },
+    { pattern: 'remarkably' },
+    { pattern: 'genuinely' },
+    { pattern: 'precisely' },
+    { pattern: 'plainly' },
+    { pattern: 'materially' },
+    { pattern: 'crucially' },
+    { pattern: 'concretely' },
+    { pattern: 'structurally' },
+    { pattern: 'worth noting', match: 'phrase' },
+
+    // Consultant and product vocabulary
+    { pattern: 'utilize' },
+    { pattern: 'leverage' },
+    { pattern: 'delve' },
+    { pattern: 'robust' },
+    { pattern: 'myriad' },
+    { pattern: 'plethora' },
+    { pattern: 'paradigm' },
+    { pattern: 'holistic' },
+    { pattern: 'synergy' },
+    { pattern: 'seamless' },
+    { pattern: 'pivotal' },
+    { pattern: 'crucial' },
+    { pattern: 'vital' },
+    { pattern: 'comprehensive' },
+    { pattern: 'innovative' },
+    { pattern: 'cutting-edge' },
+    { pattern: 'state-of-the-art' },
+    { pattern: 'landscape' },
+    { pattern: 'ecosystem' },
+    { pattern: 'framework' },
+    { pattern: 'methodology' },
+    { pattern: 'stakeholder' },
+    { pattern: 'actionable' },
+    { pattern: 'impactful' },
+    { pattern: 'transformative' },
+    { pattern: 'unprecedented' },
+    { pattern: 'orthogonal' },
+    { pattern: 'adjacent' },
+    { pattern: 'nuance' },
+    { pattern: 'framing' },
+    { pattern: 'unpack' },
+    { pattern: 'load-bearing' },
+    { pattern: 'at scale', match: 'phrase' },
+    { pattern: 'lean into', match: 'phrase' },
+    {
+      id: 'surface-verb',
+      label: 'surface (as a verb)',
+      // The noun is ordinary English ("the road surface", "surface area").
+      // Only the verb is a tell: the -ed/-ing forms, or "surface(s)" taking
+      // an object.
+      pattern:
+        '\\bsurfac(?:ed|ing)\\b|\\bsurfaces?\\b(?=\\s+(?:the|a|an|it|this|that|these|those|any|some|all|more|issues?|problems?|risks?|concerns?|questions?|tensions?|tradeoffs?|trade-offs?|assumptions?|disagreements?)\\b)',
+      match: 'regex',
+    },
   ];
+
+  function slugFor(s) {
+    return String(s)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+  }
+
+  /** Normalize a candidate into {id, label, re}. */
+  function absenceEntry(raw) {
+    const pattern = typeof raw === 'string' ? raw : raw.pattern;
+    const match = (typeof raw === 'object' && raw.match) || 'word';
+    const label = (typeof raw === 'object' && raw.label) || pattern;
+    const id = (typeof raw === 'object' && raw.id) || slugFor(label);
+
+    let source;
+    if (match === 'regex') source = pattern;
+    else {
+      const escaped = String(pattern).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // A phrase may be separated by any run of whitespace, including a line
+      // break, so "worth\nnoting" still counts as used.
+      const body = match === 'phrase' ? escaped.replace(/\\?\s+/g, '\\s+') : escaped;
+      const lead = /^[A-Za-z0-9]/.test(pattern) ? '\\b' : '';
+      const tail = /[A-Za-z0-9]$/.test(pattern) ? '\\b' : '';
+      source = lead + body + tail;
+    }
+    return { id, label, match, re: new RegExp(source, 'gi') };
+  }
+
+  const ABSENCE_ENTRIES = ABSENCE_CANDIDATES.map(absenceEntry);
+
+  /**
+   * Look a candidate back up by its label or id. A stored profile carries
+   * labels, not compiled patterns — JSON cannot hold a RegExp — so the
+   * comparison in voice.js resolves them through here rather than falling
+   * back to whole-word matching, which would miss every phrase entry.
+   */
+  const ABSENCE_BY_KEY = new Map();
+  for (const e of ABSENCE_ENTRIES) {
+    ABSENCE_BY_KEY.set(e.label.toLowerCase(), e);
+    ABSENCE_BY_KEY.set(e.id, e);
+  }
+  const absenceFor = (key) => ABSENCE_BY_KEY.get(String(key || '').toLowerCase()) || null;
+
+  /** How many times an entry occurs in a piece of text. */
+  function absenceCount(entry, text) {
+    entry.re.lastIndex = 0;
+    let n = 0;
+    let m;
+    while ((m = entry.re.exec(text)) !== null) {
+      n += 1;
+      if (m.index === entry.re.lastIndex) entry.re.lastIndex += 1;
+      if (n > 500) break;
+    }
+    return n;
+  }
 
   const STOPWORDS = new Set(Object.keys(BASELINE).concat([
     'am', 'been', 'being', 'both', 'during', 'few', 'further', 'having',
@@ -226,6 +376,9 @@ const Fingerprint = (() => {
       id: sample.id,
       label: sample.label,
       type: sample.type,
+      // Cleaned prose, kept so phrase-level checks can search it. Local to
+      // measurement; it is never written into the exported profile.
+      text,
       words: ws.length,
       sentences: sents,
       sentLengths,
@@ -417,8 +570,9 @@ const Fingerprint = (() => {
     for (const w of all) counts.set(w, (counts.get(w) || 0) + 1);
 
     if (def.id === 'absentWords') {
-      const absent = [...new Set(ABSENCE_CANDIDATES)]
-        .filter((w) => !counts.has(w.toLowerCase()))
+      const corpusText = measured.map((m) => m.text).join('\n\n');
+      const absent = ABSENCE_ENTRIES.filter((e) => absenceCount(e, corpusText) === 0)
+        .map((e) => e.label)
         .sort();
       return {
         id: def.id,
@@ -430,7 +584,7 @@ const Fingerprint = (() => {
         have,
         // Absence is only a claim about the corpus that was actually read.
         observedOver: corpusWords,
-        candidates: ABSENCE_CANDIDATES.length,
+        candidates: ABSENCE_ENTRIES.length,
         absent,
         evidence: absent.slice(0, 6).map((w) => ({
           sample: null,
@@ -555,6 +709,10 @@ const Fingerprint = (() => {
     BASELINE,
     BASELINE_FLOOR,
     ABSENCE_CANDIDATES,
+    ABSENCE_ENTRIES,
+    absenceEntry,
+    absenceCount,
+    absenceFor,
     CONTRACTION_RE,
     build,
     measureSample,

@@ -299,9 +299,98 @@ test('absence is only claimed over the corpus actually read', () => {
   const m = full.metrics.absentWords;
   if (!m.available) return;
   assert.ok(m.observedOver > 0, 'absence must state how much text it looked at');
-  const corpus = C.usableSamples(WRITTEN).join(' ').toLowerCase();
-  for (const w of m.absent.slice(0, 10)) {
-    assert.ok(!corpus.includes(w.toLowerCase()), `"${w}" is claimed absent but appears`);
+  const corpus = C.usableSamples(WRITTEN).join(' ');
+  for (const label of m.absent) {
+    const entry = F.absenceFor(label);
+    assert.ok(entry, `"${label}" is reported absent but is not a candidate`);
+    assert.strictEqual(
+      F.absenceCount(entry, corpus),
+      0,
+      `"${label}" is claimed absent but appears in the corpus`
+    );
+  }
+});
+
+// ── Candidates: words, phrases and the one ambiguous verb ───────────
+
+test('every candidate has a distinct id and a compiled pattern', () => {
+  const ids = new Set();
+  for (const e of F.ABSENCE_ENTRIES) {
+    assert.ok(e.label, 'a candidate has no label');
+    assert.ok(!ids.has(e.id), `duplicate candidate id: ${e.id}`);
+    ids.add(e.id);
+    assert.ok(e.re instanceof RegExp, `${e.id} has no pattern`);
+  }
+  assert.strictEqual(ids.size, F.ABSENCE_ENTRIES.length);
+});
+
+test('a candidate can be looked back up by label or id', () => {
+  for (const e of F.ABSENCE_ENTRIES) {
+    assert.strictEqual(F.absenceFor(e.label), e, `${e.label} does not resolve`);
+    assert.strictEqual(F.absenceFor(e.id), e, `${e.id} does not resolve`);
+  }
+  assert.strictEqual(F.absenceFor('a word nobody listed'), null);
+});
+
+test('the words requested for the list are all candidates', () => {
+  const asked = [
+    'genuinely', 'precisely', 'plainly', 'materially', 'fundamentally', 'notably',
+    'crucially', 'arguably', 'ultimately', 'concretely', 'structurally', 'orthogonal',
+    'adjacent', 'nuance', 'framing', 'unpack', 'surface (as a verb)', 'load-bearing',
+    'at scale', 'lean into', 'worth noting', 'nonetheless', 'albeit', 'whereby',
+    'thereby', 'insofar',
+  ];
+  const missing = asked.filter((w) => !F.absenceFor(w));
+  assert.deepStrictEqual(missing, [], `not on the candidate list: ${missing.join(', ')}`);
+});
+
+test('a single-word candidate matches whole words only', () => {
+  const nuance = F.absenceFor('nuance');
+  assert.strictEqual(F.absenceCount(nuance, 'the nuance here'), 1);
+  assert.strictEqual(F.absenceCount(nuance, 'a nuanced take'), 0, 'matched inside a longer word');
+});
+
+test('a phrase candidate matches across a line break, not its parts alone', () => {
+  const worthNoting = F.absenceFor('worth noting');
+  assert.strictEqual(F.absenceCount(worthNoting, 'it is worth\nnoting that'), 1);
+  assert.strictEqual(F.absenceCount(worthNoting, 'noting the price is worth it'), 0);
+
+  const atScale = F.absenceFor('at scale');
+  assert.strictEqual(F.absenceCount(atScale, 'we ran it at scale'), 1);
+  assert.strictEqual(F.absenceCount(atScale, 'the scale of the problem'), 0);
+});
+
+test('"surface" counts as a verb and not as a noun', () => {
+  const e = F.absenceFor('surface (as a verb)');
+  for (const verb of [
+    'we need to surface the issue',
+    'it surfaced during review',
+    'surfacing risks early',
+    'surface all assumptions',
+  ]) {
+    assert.strictEqual(F.absenceCount(e, verb), 1, `missed the verb in: ${verb}`);
+  }
+  for (const noun of [
+    'the surface area of the tank',
+    'the road surface was wet',
+    'a surface anomaly',
+  ]) {
+    assert.strictEqual(F.absenceCount(e, noun), 0, `flagged the noun in: ${noun}`);
+  }
+});
+
+test('a phrase the writer uses is not reported absent', () => {
+  const withPhrases = build([
+    ...WRITTEN.slice(0, 3),
+    {
+      label: 'Strategy note',
+      text: rep('We ran it at scale and it is worth noting the team will lean into that. ', 60),
+    },
+  ]);
+  const m = withPhrases.metrics.absentWords;
+  if (!m.available) return;
+  for (const used of ['at scale', 'worth noting', 'lean into']) {
+    assert.ok(!m.absent.includes(used), `"${used}" is used but reported absent`);
   }
 });
 

@@ -64,6 +64,16 @@ const Voice = (() => {
 
   const round1 = (n) => Math.round(n * 10) / 10;
 
+  /**
+   * Quote a candidate for a finding. A label may carry a qualifier —
+   * "surface (as a verb)" — which belongs outside the quotation marks,
+   * because the writer never writes the parentheses.
+   */
+  function quoteCandidate(label) {
+    const m = /^(.+?)\s+(\(.+\))$/.exec(String(label));
+    return m ? `"${m[1]}" ${m[2]}` : `"${label}"`;
+  }
+
   const BANDS = [
     { id: 'close', min: 80, max: 100, label: 'Sounds like you', tone: 'low' },
     { id: 'near', min: 60, max: 79, label: 'Mostly like you', tone: 'low' },
@@ -239,7 +249,15 @@ const Voice = (() => {
       for (const w of draftWords) counts.set(w, (counts.get(w) || 0) + 1);
 
       for (const word of absent.absent) {
-        const n = counts.get(word.toLowerCase());
+        // Candidates are not all single words. "at scale" and "worth noting"
+        // are phrases, and "surface" only counts as a verb — none of which a
+        // word-frequency map can answer. Resolve the candidate back to the
+        // pattern that produced it and count that; the word map is the
+        // fallback for a stored profile naming something we no longer carry.
+        const entry = Fingerprint.absenceFor ? Fingerprint.absenceFor(word) : null;
+        const n = entry
+          ? Fingerprint.absenceCount(entry, measured.text || draft)
+          : counts.get(word.toLowerCase());
         if (!n) continue;
         findings.push({
           type: 'voice',
@@ -248,7 +266,7 @@ const Voice = (() => {
           label: 'Word you never use',
           severity: 'high',
           text:
-            `you never write "${word}" across ${absent.observedOver} words, ` +
+            `you never write ${quoteCandidate(word)} across ${absent.observedOver} words, ` +
             `this draft uses it ${n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`}`,
           suggestion: '',
           word,
