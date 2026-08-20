@@ -1,0 +1,20 @@
+Marco Reyes
+marco@reyes.dev | github.com/mreyes | Austin, TX
+
+EXPERIENCE
+Backend engineer, Halyard Logistics — Mar 2021 - Present
+• Rewrote the dispatch matcher. Cut p99 assignment latency from 4.2s to 380ms.
+• Owned the on-call rotation for 3 services.
+• Killed a nightly batch job nobody had read since 2019; saved $3,100/month in
+  compute and removed the 6am pager that came with it.
+• Wrote the internal Postgres upgrade runbook. 14 teams used it.
+
+Junior engineer, Tessellate — Jun 2019 - Feb 2021
+• Built the CSV import path. Handled 41,000 rows/day at peak.
+• Shipped the retry queue after a bad week of dropped webhooks.
+
+SKILLS
+Go, Postgres, Python, Terraform
+
+EDUCATION
+BS Computer Science, UT Austin, 2019

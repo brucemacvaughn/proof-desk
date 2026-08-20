@@ -1,0 +1,24 @@
+{
+  "name": "ai-text-scanner",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Scan essays, text, and resumes for AI-writing patterns. Built on the avoid-ai-writing detector plus a resume-specific rule layer.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "scan": "scanner/scan.js"
+  },
+  "scripts": {
+    "scan": "node scanner/scan.js",
+    "build": "node scanner/build.js",
+    "test": "npm run test:resume && npm run test:fixer && npm run test:extract && npm run test:detector && npm run test:build",
+    "test:resume": "node scanner/resume-rules.test.js",
+    "test:fixer": "node scanner/fixer.test.js",
+    "test:extract": "node scanner/extract.test.js",
+    "test:detector": "cd .claude/skills/avoid-ai-writing && node detector/patterns.test.js && node detector/validate.test.js && node detector/categories.test.js",
+    "test:build": "node scanner/build.js && node scanner/build.test.js",
+    "verify:browser": "node scanner/verify-browser.js"
+  }
+}

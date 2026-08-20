@@ -1,0 +1,29 @@
+# Dependencies — this project has none at runtime; playwright is opt-in only.
+node_modules/
+package-lock.json
+npm-debug.log*
+yarn-error.log*
+
+# Environment and credentials — never commit these.
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+.netrc
+.npmrc
+secrets.json
+credentials.json
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Scratch output
+*.log
+/tmp/
+screenshots/
