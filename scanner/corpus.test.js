@@ -222,10 +222,11 @@ test('an empty corpus contributes no text and no readiness', () => {
   assert.strictEqual(C.status([]).ok, false);
 });
 
-test('stage 1 exposes no fingerprint or score', () => {
-  // Guards the staging: comparison lands in stage 3, not before.
-  for (const name of ['fingerprint', 'compare', 'voiceScore', 'match']) {
-    assert.strictEqual(C[name], undefined, `Corpus.${name} should not exist yet`);
+test('the corpus module owns storage, not scoring', () => {
+  // Staging guard: the fingerprint lives in fingerprint.js and the
+  // comparison in stage 3. Neither may migrate back into the corpus.
+  for (const name of ['fingerprint', 'compare', 'voiceScore', 'match', 'build']) {
+    assert.strictEqual(C[name], undefined, `Corpus.${name} does not belong here`);
   }
 });
 

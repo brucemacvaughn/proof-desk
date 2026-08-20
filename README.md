@@ -115,9 +115,8 @@ detector itself is untouched.
 
 ## Voice: the reference corpus
 
-*Phase 2, Stage 1 — ingest. The fingerprint (Stage 2) and the VOICE MATCH
-score (Stage 3) are not built yet; nothing else in the app changes until a
-corpus exists.*
+*Phase 2, Stages 1–2 — ingest and fingerprint. The VOICE MATCH score
+(Stage 3) is not built yet.*
 
 Proof Desk can hold a **reference corpus**: 4–6 samples of your own writing,
 used later to compare a draft against how you actually write.
@@ -169,6 +168,57 @@ exits non-zero when the corpus is not yet usable, so it works as a check.
 
 **In the skill** — `.claude/skills/avoid-ai-writing/VOICE.md` is generated
 from the same thresholds and states the unassisted constraint for the agent.
+
+### Written and spoken samples
+
+A sample is `written` or `spoken`. Transcripts of talks, courses and
+interviews are `spoken`: their sentence lengths, paragraph breaks,
+punctuation and contractions belong to whoever transcribed them — auto-captions
+carry none at all — so **those metrics ignore transcripts entirely**.
+Vocabulary and phrasing survive transcription, so spoken samples do count
+toward those. The UI labels the type and says why it counts for less.
+
+## The voice profile
+
+Built from the corpus. Four properties matter more than the metric list.
+
+**Range, not averages.** Someone who mentors students, files support reports
+and negotiates with vendors has a sentence length that is a *band*, not a
+number. Every numeric metric is measured **per sample** and stored as the
+range across samples, with the mean alongside. Stage 3 will flag only drafts
+outside the band — comparing against an average the writer never actually
+writes at would flag their own work constantly.
+
+**Per-metric confidence, no global number.** A mean settles after a few
+hundred words; claiming someone *never* writes a word needs thousands. Each
+metric declares its own requirement and reports `unavailable` with a reason
+until met:
+
+| Metric | Needs | Basis |
+|---|---|---|
+| Sentence length, Reading level | 400 words | written only |
+| Commas, Contractions | 500 words | written only |
+| Sentence openers | 600 words | written only |
+| Paragraph length | 800 words | written only |
+| Semicolons, Dashes, Parentheticals | 1,000 words | written only |
+| Paragraph openers, Words you lean on | 1,500 words | mixed |
+| Words you never use | 3,000 words | mixed |
+
+There is deliberately **no single confidence score** — the profile reports
+how many metrics are actually available (e.g. `8/12`).
+
+**Evidence.** Every metric carries real excerpts from the corpus that produced
+it, attributed to their sample. Sentence length shows the shortest, a median
+and the longest sentence you actually wrote. A fingerprint you cannot audit is
+one you should not trust.
+
+**Absence is bounded.** "Words you never use" is only ever a claim about the
+corpus that was read, and says so: *"furthermore appears 0 times in 3,100
+words."*
+
+```bash
+node scanner/scan.js --fingerprint --corpus my-corpus.json
+```
 
 ## The score bands
 
@@ -341,6 +391,7 @@ Use it to sharpen a draft. Don't use it to decide whether someone cheated.
 | `scanner/scoring.js` | **Score bands and the calibration curve — the source of truth.** |
 | `scanner/house-rules.js` | **House rules — the source of truth for the rule set.** |
 | `scanner/corpus.js` | Reference corpus: storage, screening, readiness. |
+| `scanner/fingerprint.js` | Voice profile: bands, per-metric confidence, evidence. |
 | `scanner/sync-rules.js` | Regenerates the JSON and skill copies from it. |
 | `scanner/engine.js` | Combines the engines and picks essay vs resume mode. |
 | `scanner/resume-rules.js` | The resume genre layer. |
@@ -356,7 +407,7 @@ Use it to sharpen a draft. Don't use it to decide whether someone cheated.
 Node >= 18. No install step.
 
 ```bash
-npm test          # bands, house rules, corpus, resume rules, fixer, extraction, detector, bundle
+npm test          # bands, house rules, corpus, fingerprint, resume rules, fixer, extraction, detector, bundle
 npm run test:bands # just the score calibration + fixture corpus
 npm run rules:sync # regenerate house-rules.json and the skill copies
 npm run build     # regenerate dist/index.html from scanner/app.html

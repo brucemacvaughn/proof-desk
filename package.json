@@ -13,11 +13,12 @@
   "scripts": {
     "scan": "node scanner/scan.js",
     "build": "node scanner/build.js",
-    "test": "npm run test:bands && npm run test:house && npm run test:corpus && npm run test:resume && npm run test:fixer && npm run test:extract && npm run test:detector && npm run test:build",
+    "test": "npm run test:bands && npm run test:house && npm run test:corpus && npm run test:fingerprint && npm run test:resume && npm run test:fixer && npm run test:extract && npm run test:detector && npm run test:build",
     "test:resume": "node scanner/resume-rules.test.js",
     "test:bands": "node scanner/bands.test.js",
     "test:house": "node scanner/house-rules.test.js",
     "test:corpus": "node scanner/corpus.test.js",
+    "test:fingerprint": "node scanner/fingerprint.test.js",
     "test:fixer": "node scanner/fixer.test.js",
     "test:extract": "node scanner/extract.test.js",
     "test:detector": "cd .claude/skills/avoid-ai-writing && node detector/patterns.test.js && node detector/validate.test.js && node detector/categories.test.js",

@@ -119,7 +119,15 @@ const Corpus = (() => {
         ? raw.label.trim().slice(0, 120)
         : `Sample ${index + 1}`;
 
+    // Written or spoken. A transcript's sentence lengths, paragraph breaks,
+    // punctuation and contractions are the transcriber's choices, not the
+    // speaker's — auto-captions carry no punctuation at all, and a human
+    // transcript carries whoever typed it. Vocabulary and phrasing survive
+    // transcription, so spoken samples feed those metrics and nothing else.
+    const type = raw.type === 'spoken' ? 'spoken' : 'written';
+
     return {
+      type,
       id: typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : slug(label),
       label,
       text,
@@ -220,6 +228,9 @@ const Corpus = (() => {
     const usable = list.filter((s) => !s.screen.flagged || s.overrideScreen);
     const totalWords = list.reduce((n, s) => n + s.words, 0);
     const usableWords = usable.reduce((n, s) => n + s.words, 0);
+    const written = usable.filter((s) => s.type === 'written');
+    const writtenWords = written.reduce((n, s) => n + s.words, 0);
+    const spokenWords = usableWords - writtenWords;
 
     const reasons = [];
     if (usable.length < MIN_SAMPLES) {
@@ -249,8 +260,11 @@ const Corpus = (() => {
       ok,
       sampleCount: list.length,
       usableCount: usable.length,
+      writtenCount: written.length,
       totalWords,
       usableWords,
+      writtenWords,
+      spokenWords,
       confidence,
       flagged: flagged.map((s) => ({ id: s.id, label: s.label, screen: s.screen })),
       reasons,
@@ -258,10 +272,19 @@ const Corpus = (() => {
     };
   }
 
-  /** The usable samples' text, joined — what a fingerprint will read. */
-  function usableText(samples) {
-    return screen(samples)
-      .filter((s) => !s.screen.flagged || s.overrideScreen)
+  /** The samples a fingerprint may read: screened clean, or kept on purpose. */
+  function usableSamples(samples) {
+    return screen(samples).filter((s) => !s.screen.flagged || s.overrideScreen);
+  }
+
+  /**
+   * @param {Array} samples
+   * @param {{type?: 'written'|'spoken'|'any'}} [opts]
+   */
+  function usableText(samples, opts = {}) {
+    const want = opts.type || 'any';
+    return usableSamples(samples)
+      .filter((s) => want === 'any' || s.type === want)
       .map((s) => s.text)
       .join('\n\n');
   }
@@ -277,6 +300,7 @@ const Corpus = (() => {
         'with an assistant fingerprints the assistant, not the writer.',
       samples: normalize(samples).map((s) => {
         const out = { label: s.label, text: s.text };
+        if (s.type !== 'written') out.type = s.type;
         if (s.note) out.note = s.note;
         if (s.overrideScreen) out.overrideScreen = true;
         if (s.unassisted === false) out.unassisted = false;
@@ -319,6 +343,7 @@ const Corpus = (() => {
     screen,
     screenSample,
     status,
+    usableSamples,
     usableText,
     toJSON,
     fromJSON,

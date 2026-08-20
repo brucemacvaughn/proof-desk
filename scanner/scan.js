@@ -30,6 +30,7 @@ const Fixer = require('./fixer.js');
 const Scoring = require('./scoring.js');
 const HouseRules = require('./house-rules.js');
 const Corpus = require('./corpus.js');
+const Fingerprint = require('./fingerprint.js');
 const os = require('os');
 
 // ═══ Terminal helpers ════════════════════════════════════════════════
@@ -73,6 +74,7 @@ function parseArgs(argv) {
     else if (a === '--no-house') opts.noHouse = true;
     else if (a === '--corpus') opts.corpusPath = argv[++i];
     else if (a === '--corpus-status') opts.corpusStatus = true;
+    else if (a === '--fingerprint') opts.fingerprint = true;
     else if (a === '--help' || a === '-h') opts.help = true;
     else if (!a.startsWith('-')) opts.file = a;
   }
@@ -92,6 +94,7 @@ Options
   --no-house                   skip house rules entirely
   --corpus <file.json>         reference corpus of your own unassisted writing
   --corpus-status              report corpus readiness and exit
+  --fingerprint                print the voice profile and exit
   --fix                        print the draft with the definite fixes applied
   --fail-over <n>              exit 1 when the AI score is above n
   --json                       machine-readable output
@@ -229,6 +232,60 @@ function renderCorpus(loaded) {
   return out.join('\n');
 }
 
+function renderFingerprint(loaded) {
+  const out = [];
+  if (!loaded) {
+    out.push('');
+    out.push(`  ${dim('No reference corpus. Add one with --corpus <file.json>.')}`);
+    out.push('');
+    return out.join('\n');
+  }
+
+  const usable = Corpus.usableSamples(loaded.samples);
+  const fp = Fingerprint.build(usable);
+  const b = fp.builtFrom;
+
+  out.push('');
+  out.push(`  ${bold('Voice profile')} ${dim(loaded.source)}`);
+  out.push(
+    dim(
+      `  ${b.writtenSamples} written + ${b.spokenSamples} spoken · ` +
+        `${b.writtenWords} written words, ${b.spokenWords} spoken · ` +
+        `${fp.availableMetrics}/${fp.totalMetrics} metrics available`
+    )
+  );
+  out.push(dim('  Each metric carries its own data requirement. There is no single confidence score.'));
+  out.push('');
+
+  for (const m of Object.values(fp.metrics)) {
+    const tag = m.writtenOnly ? dim(' [written only]') : '';
+    if (!m.available) {
+      out.push(`  ${dim('·')} ${dim(m.label.padEnd(20))}${dim('unavailable')}${tag}`);
+      out.push(`      ${dim(m.reason)}`);
+      continue;
+    }
+    let value;
+    if (m.band) {
+      value = m.band.low === m.band.high
+        ? `${m.band.low} ${m.unit}`
+        : `${m.band.low}-${m.band.high} ${m.unit}`;
+    } else if (m.top) {
+      value = m.top.slice(0, 3).map((t) => `"${t.word}" ${t.rate}%`).join(', ');
+    } else if (m.words) {
+      value = m.words.slice(0, 5).map((w) => w.word).join(', ') || 'none stand out';
+    } else {
+      value = `${m.absent.length} of ${m.candidates} never used`;
+    }
+    out.push(`  ${green('✓')} ${bold(m.label.padEnd(20))}${cyan(value)}${tag}`);
+    if (m.mean !== undefined) out.push(`      ${dim(`mean ${m.mean} across ${m.samples} samples`)}`);
+    for (const e of (m.evidence || []).slice(0, 2)) {
+      out.push(`      ${dim('· ' + truncate(e.text, 88))}${e.sample ? dim(' — ' + e.sample) : ''}`);
+    }
+  }
+  out.push('');
+  return out.join('\n');
+}
+
 // ═══ Scanning ═══════════════════════════════════════════════════════
 //
 // Mode detection and the prose+resume combination live in ./engine.js so the
@@ -348,12 +405,12 @@ function main() {
     // --corpus-status with no file reports on the corpus alone and must not
     // block on stdin. Checking isTTY was wrong: with output redirected stdin
     // is not a TTY either, and the read failed with EAGAIN.
-    text = opts.corpusStatus && !opts.file ? '' : readInput(opts.file);
+    text = (opts.corpusStatus || opts.fingerprint) && !opts.file ? '' : readInput(opts.file);
   } catch (err) {
     process.stderr.write(`scan: cannot read ${opts.file}: ${err.message}\n`);
     return 2;
   }
-  if (text === null && !opts.corpusStatus) {
+  if (text === null && !opts.corpusStatus && !opts.fingerprint) {
     process.stdout.write(HELP);
     return 2;
   }
@@ -367,6 +424,10 @@ function main() {
   if (opts.corpusStatus) {
     process.stdout.write(renderCorpus(corpus));
     return corpus && Corpus.status(corpus.samples).ok ? 0 : 1;
+  }
+  if (opts.fingerprint) {
+    process.stdout.write(renderFingerprint(corpus));
+    return corpus ? 0 : 1;
   }
 
   const house = loadHouseRules(opts);

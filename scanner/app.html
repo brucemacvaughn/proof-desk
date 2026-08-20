@@ -479,6 +479,50 @@
     resize: vertical;
   }
 
+  /* ── Voice profile ───────────────────────────────────────────── */
+  .metric-list { max-height: 22rem; overflow-y: auto; }
+
+  .metric {
+    border-top: 1px solid var(--rule);
+    padding: .5rem .875rem .625rem;
+  }
+
+  .metric.is-off { opacity: .55; }
+  .metric-top { display: flex; justify-content: space-between; gap: .5rem; align-items: baseline; }
+  .metric-name { font-size: var(--step--1); font-weight: 500; }
+  .metric-value { font-family: var(--mono); font-size: var(--step--1); font-variant-numeric: tabular-nums; }
+  .metric-why { font-size: .6875rem; color: var(--ink-3); margin-top: .1875rem; }
+  .metric-tag {
+    font-family: var(--mono);
+    font-size: .5625rem;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 0 .25rem;
+    margin-left: .3125rem;
+  }
+
+  .metric-evidence {
+    margin-top: .375rem;
+    padding-left: .625rem;
+    border-left: 2px solid var(--rule);
+  }
+
+  .metric-evidence li {
+    list-style: none;
+    font-family: var(--serif);
+    font-size: .8125rem;
+    color: var(--ink-2);
+    margin: .1875rem 0;
+    line-height: 1.4;
+  }
+
+  .metric-evidence .cite { font-family: var(--mono); font-size: .625rem; color: var(--ink-3); }
+  .metric details > summary { cursor: pointer; font-size: .6875rem; color: var(--accent); margin-top: .25rem; }
+  .metric details ul { margin: 0; padding: 0; }
+
   /* ── House rules editor ──────────────────────────────────────── */
   .rule-tools { display: flex; align-items: center; gap: .5rem; }
   .rules-intro { margin: 0; padding: .75rem .875rem 0; font-size: var(--step--1); color: var(--ink-2); }
@@ -748,6 +792,25 @@
         </div>
       </section>
 
+      <section class="panel" aria-label="Voice profile">
+        <div class="panel-head">
+          <span class="eyebrow">Voice profile</span>
+          <div class="rule-tools">
+            <span class="eyebrow" id="profile-count">—</span>
+            <button type="button" class="btn" id="profile-toggle" aria-expanded="false">Show</button>
+          </div>
+        </div>
+        <div id="profile-body" hidden>
+          <p class="rules-intro" id="profile-intro">Add samples to build a profile.</p>
+          <div class="metric-list" id="metric-list"></div>
+          <div class="rule-io">
+            <button type="button" class="btn" id="profile-copy">Copy JSON</button>
+            <button type="button" class="btn" id="profile-rebuild">Rebuild</button>
+          </div>
+          <p class="rules-msg" id="profile-msg"></p>
+        </div>
+      </section>
+
       <section class="panel" aria-label="House rules">
         <div class="panel-head">
           <span class="eyebrow">House rules</span>
@@ -812,6 +875,7 @@
 <script>/*INJECT:scoring*/</script>
 <script>/*INJECT:house-rules*/</script>
 <script>/*INJECT:corpus*/</script>
+<script>/*INJECT:fingerprint*/</script>
 <script>/*INJECT:extract*/</script>
 <script>/*INJECT:fixer*/</script>
 <script>/*INJECT:engine*/</script>
@@ -1059,6 +1123,7 @@
 
     function renderCorpus() {
       const st = Corpus.status(samples);
+      if (typeof renderProfile === 'function' && !$('profile-body').hidden) renderProfile();
 
       $('corpus-count').textContent = samples.length
         ? `${st.usableCount}/${Corpus.MIN_SAMPLES} · ${st.usableWords}w`
@@ -1219,6 +1284,99 @@
       saveCorpus();
       renderCorpus();
       sayCorpus('Corpus cleared.', 'ok');
+    });
+
+    // ── Voice profile ────────────────────────────────────────────
+    //
+    // Stage 2: build and show. Every metric reports its own availability;
+    // there is no global confidence number by design. Nothing here feeds
+    // the AI score.
+    let profile = null;
+
+    function formatMetric(m) {
+      if (m.band) {
+        const same = m.band.low === m.band.high;
+        return same
+          ? `${m.band.low} ${m.unit}`
+          : `${m.band.low}–${m.band.high} ${m.unit}`;
+      }
+      if (m.top) return m.top.slice(0, 3).map((t) => `"${t.word}" ${t.rate}%`).join(', ');
+      if (m.words) return m.words.slice(0, 4).map((w) => w.word).join(', ') || 'none stand out';
+      if (m.absent) return `${m.absent.length} of ${m.candidates} checked`;
+      return '';
+    }
+
+    function renderProfile() {
+      const usable = Corpus.usableSamples(samples);
+      profile = Fingerprint.build(usable);
+
+      $('profile-count').textContent = `${profile.availableMetrics}/${profile.totalMetrics}`;
+      $('profile-intro').innerHTML = profile.builtFrom.totalWords
+        ? `From <b>${profile.builtFrom.writtenSamples}</b> written and ` +
+          `<b>${profile.builtFrom.spokenSamples}</b> spoken samples · ` +
+          `${profile.builtFrom.writtenWords} written words, ${profile.builtFrom.spokenWords} spoken. ` +
+          `Each metric reports its own data requirement; there is no single confidence score.`
+        : 'Add samples to build a profile.';
+
+      $('metric-list').innerHTML = Object.values(profile.metrics)
+        .map((m) => {
+          const tag = m.writtenOnly ? '<span class="metric-tag">written only</span>' : '';
+          if (!m.available) {
+            return (
+              `<div class="metric is-off">` +
+              `<div class="metric-top"><span class="metric-name">${esc(m.label)}${tag}</span>` +
+              `<span class="metric-value">unavailable</span></div>` +
+              `<div class="metric-why">${esc(m.reason)}</div></div>`
+            );
+          }
+          const ev = (m.evidence || [])
+            .map(
+              (e) =>
+                `<li>${esc(e.text)}` +
+                (e.sample ? ` <span class="cite">— ${esc(e.sample)}</span>` : '') +
+                `</li>`
+            )
+            .join('');
+          return (
+            `<div class="metric">` +
+            `<div class="metric-top"><span class="metric-name">${esc(m.label)}${tag}</span>` +
+            `<span class="metric-value">${esc(formatMetric(m))}</span></div>` +
+            (m.mean !== undefined
+              ? `<div class="metric-why">mean ${m.mean} across ${m.samples} samples</div>`
+              : '') +
+            (ev
+              ? `<details><summary>Show the evidence</summary><ul class="metric-evidence">${ev}</ul></details>`
+              : '') +
+            `</div>`
+          );
+        })
+        .join('');
+    }
+
+    $('profile-toggle').addEventListener('click', () => {
+      const open = $('profile-body').hidden;
+      $('profile-body').hidden = !open;
+      $('profile-toggle').setAttribute('aria-expanded', String(open));
+      $('profile-toggle').textContent = open ? 'Hide' : 'Show';
+      if (open) renderProfile();
+    });
+
+    $('profile-rebuild').addEventListener('click', () => {
+      renderProfile();
+      $('profile-msg').textContent = `Rebuilt from ${profile.builtFrom.samples} samples.`;
+      $('profile-msg').dataset.kind = 'ok';
+    });
+
+    $('profile-copy').addEventListener('click', async () => {
+      if (!profile) renderProfile();
+      try {
+        await navigator.clipboard.writeText(Fingerprint.toJSON(profile));
+        $('profile-msg').textContent = 'Profile copied.';
+        $('profile-msg').dataset.kind = 'ok';
+      } catch {
+        $('profile-msg').textContent = 'Could not reach the clipboard.';
+        $('profile-msg').dataset.kind = 'err';
+      }
     });
 
     // ── House rules ──────────────────────────────────────────────
@@ -1690,6 +1848,7 @@
     buildScale();
     renderRules();
     renderCorpus();
+    renderProfile();
 
     // Open on the AI essay so the page explains itself, but stay in Draft:
     // the proof view is read-only, and landing there means a first-time

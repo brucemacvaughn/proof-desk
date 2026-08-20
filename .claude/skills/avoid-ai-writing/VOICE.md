@@ -45,3 +45,43 @@ The web page keeps its own copy in browser storage and exports the same JSON.
 Below those floors the tool reports low confidence rather than producing a
 number that looks authoritative. Respect that: a thin corpus is a weak claim
 about someone's voice, and should be described as one.
+
+## Written and spoken samples
+
+A sample is `written` or `spoken`. Transcripts of talks, courses and
+interviews are `spoken`: their sentence lengths, paragraph breaks,
+punctuation and contractions belong to whoever transcribed them — auto-captions
+carry no punctuation at all — so those metrics ignore transcripts entirely.
+Vocabulary and phrasing survive transcription, so spoken samples do count
+toward those.
+
+## The profile
+
+Each metric carries its own data requirement and is marked unavailable, with
+a reason, until the corpus meets it. Mean sentence length settles after a few
+hundred words; claiming someone *never* writes a word needs thousands. There
+is deliberately no single confidence number.
+
+| Metric | Needs | Basis |
+|---|---|---|
+| Sentence length | 400 words | written only |
+| Paragraph length | 800 words | written only |
+| Commas | 500 words | written only |
+| Semicolons | 1000 words | written only |
+| Dashes | 1000 words | written only |
+| Parentheticals | 1000 words | written only |
+| Contractions | 500 words | written only |
+| Reading level | 400 words | written only |
+| Sentence openers | 600 words | written only |
+| Paragraph openers | 1500 words | written only |
+| Words you lean on | 1500 words | written + spoken |
+| Words you never use | 3000 words | written + spoken |
+
+Numeric metrics are stored as the **band** the corpus actually shows across
+samples, not as an average. A writer who mentors students, files support
+reports and negotiates with vendors has a real sentence length that is a
+range. Flag a draft only when it falls outside that range; comparing against
+a mean the writer never actually writes at flags their own work constantly.
+
+Every metric carries excerpts from the corpus that produced it. If you report
+a number, you can quote the sentences behind it.
