@@ -32,6 +32,7 @@ const HouseRules = require('./house-rules.js');
 const Corpus = require('./corpus.js');
 const Fingerprint = require('./fingerprint.js');
 const Voice = require('./voice.js');
+const Extract = require('./extract.js');
 const os = require('os');
 
 // ═══ Terminal helpers ════════════════════════════════════════════════
@@ -423,33 +424,48 @@ function truncate(s, n) {
 
 // ═══ Main ════════════════════════════════════════════════════════════
 
-function readInput(file) {
-  if (file) return fs.readFileSync(file, 'utf8');
+/**
+ * Read the document. A named file goes through the extractor, so the CLI
+ * accepts the same PDFs and .docx files the page does; reading those as
+ * UTF-8 fed the scanner the container's own internals and scored those.
+ * Piped input is text — a shell pipe carries no filename to sniff with.
+ */
+async function readInput(file) {
+  if (file) {
+    const bytes = fs.readFileSync(file);
+    const got = await Extract.extractText(bytes, path.basename(file));
+    return { text: got.text, kind: got.kind, warnings: got.warnings || [] };
+  }
   if (process.stdin.isTTY) return null;
-  return fs.readFileSync(0, 'utf8');
+  return { text: fs.readFileSync(0, 'utf8'), kind: 'text', warnings: [] };
 }
 
-function main() {
+async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help) {
     process.stdout.write(HELP);
     return 0;
   }
 
-  let text;
+  let input;
   try {
     // --corpus-status with no file reports on the corpus alone and must not
     // block on stdin. Checking isTTY was wrong: with output redirected stdin
     // is not a TTY either, and the read failed with EAGAIN.
-    text = (opts.corpusStatus || opts.fingerprint) && !opts.file ? '' : readInput(opts.file);
+    input =
+      (opts.corpusStatus || opts.fingerprint) && !opts.file
+        ? { text: '', kind: 'text', warnings: [] }
+        : await readInput(opts.file);
   } catch (err) {
     process.stderr.write(`scan: cannot read ${opts.file}: ${err.message}\n`);
     return 2;
   }
-  if (text === null && !opts.corpusStatus && !opts.fingerprint) {
+  if (input === null && !opts.corpusStatus && !opts.fingerprint) {
     process.stdout.write(HELP);
     return 2;
   }
+  const text = input ? input.text : '';
+  const extractWarnings = input ? input.warnings : [];
 
   if (!['auto', 'essay', 'resume'].includes(opts.mode)) {
     process.stderr.write(`scan: unknown mode "${opts.mode}" — use auto, essay, or resume\n`);
@@ -505,7 +521,13 @@ function main() {
 }
 
 if (require.main === module) {
-  process.exit(main());
+  main().then(
+    (code) => process.exit(code),
+    (err) => {
+      process.stderr.write(`scan: ${err.message}\n`);
+      process.exit(2);
+    }
+  );
 }
 
 module.exports = { scan, detectMode };

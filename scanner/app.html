@@ -285,6 +285,8 @@
   }
 
   .hint { font-size: var(--step--1); color: var(--ink-3); }
+  /* A failed read must not look like a quiet note next to a live score. */
+  .hint.is-error { color: var(--sev-high); font-weight: 600; }
 
   .proof {
     white-space: pre-wrap;
@@ -1010,10 +1012,14 @@
         draft.scrollTop = 0;
         run();
         const extra = result.warnings.length ? ` ${result.warnings.join(' ')}` : '';
+        $('hint').classList.remove('is-error');
         $('hint').textContent =
           `Read ${file.name}.${extra} Check it came through cleanly before you trust the score.`;
       } catch (err) {
         // The extractor's messages say what to do next, so show them as-is.
+        // Nothing is scored: a number beside "could not read this file" is
+        // worse than the error alone, because they read as one verdict.
+        $('hint').classList.add('is-error');
         $('hint').textContent = err && err.message ? err.message : 'Could not read that file.';
       } finally {
         btn.textContent = label;

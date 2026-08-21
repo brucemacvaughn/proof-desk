@@ -152,6 +152,98 @@ test('parses bfchar and bfrange CMap forms', () => {
   assert.strictEqual(cmap.get(0x31), 'Y');
 });
 
+// ── Stream boundaries ───────────────────────────────────────────────
+//
+// Every case here comes from one real resume that extracted as empty and was
+// reported as scanned. Its only content stream ended in 0x0A; the trailing-EOL
+// trim ate that byte, inflate failed, and the document looked textless.
+
+/** Assemble a one-object PDF with an accurate /Length. */
+function onePdf(dict, streamBytes) {
+  const body = Buffer.from(streamBytes, typeof streamBytes === 'string' ? 'latin1' : undefined);
+  const head = `%PDF-1.4\n1 0 obj <<${dict} /Length ${body.length}>>\nstream\n`;
+  return new Uint8Array(
+    Buffer.concat([
+      Buffer.from(head, 'latin1'),
+      body,
+      Buffer.from('\nendstream\nendobj\ntrailer <</Root 1 0 R>>\n%%EOF\n', 'latin1'),
+    ])
+  );
+}
+
+// A real deflate stream whose final byte is 0x0A — the exact shape that broke.
+const FLATE_ENDING_IN_NEWLINE = Buffer.from(
+  'eJw1yz0OQEAQBtCrfCWVn0ZNrCDKucCElV1ZRjZDHF9D+5LXELKuQFGCVlQlqjwHLUg6eTSKYvI7o7VBGcOxeEYvasMnZnaC8QreKprIt+BvdTgdp6ANhl6tCR8K',
+  'base64'
+);
+
+test('a compressed stream whose last byte is a newline still inflates', async () => {
+  assert.strictEqual(
+    FLATE_ENDING_IN_NEWLINE[FLATE_ENDING_IN_NEWLINE.length - 1],
+    0x0a,
+    'the fixture no longer reproduces the bug'
+  );
+  const r = await E.extractText(onePdf('/Filter /FlateDecode', FLATE_ENDING_IN_NEWLINE), 'x.pdf');
+  assert.match(r.text, /Foxtrot Lima Delta India Hotel/);
+});
+
+test('the declared /Length wins over a scan for the endstream keyword', async () => {
+  // Compressed bytes can spell "endstream"; scanning for it truncates them.
+  const r = await E.extractText(
+    onePdf('', 'BT /F1 12 Tf 72 700 Td (Alpha endstream Bravo Charlie Delta) Tj ET'),
+    'x.pdf'
+  );
+  assert.match(r.text, /Alpha endstream Bravo Charlie Delta/);
+});
+
+// ── A partial read is an error, never a score ───────────────────────
+
+test('a content stream that will not decode fails loudly', async () => {
+  await assert.rejects(
+    () => E.extractText(onePdf('/Filter /FlateDecode', 'not deflate data at all'), 'x.pdf'),
+    /Could not read this PDF.*failed to decode/s
+  );
+});
+
+test('the decode error says scoring the remnant would be worse', async () => {
+  // The whole point: a confident score on a failed read is worse than an
+  // error, because nothing distinguishes it from a clean one.
+  await E.extractText(onePdf('/Filter /FlateDecode', 'not deflate data'), 'x.pdf').then(
+    () => assert.fail('should have thrown'),
+    (err) => assert.match(err.message, /worse than|Export a fresh PDF|paste the text/)
+  );
+});
+
+test('an image that will not decode does not fail a readable page', async () => {
+  // Only text we could not read is a failure. A broken image costs nothing.
+  const head = '%PDF-1.4\n';
+  const text = 'BT /F1 12 Tf 72 700 Td (Alpha Bravo Charlie Delta Echo) Tj ET';
+  const junk = 'not deflate data at all';
+  const doc =
+    head +
+    `1 0 obj <</Length ${text.length}>>\nstream\n${text}\nendstream\nendobj\n` +
+    `2 0 obj <</Subtype /Image /Filter /FlateDecode /Length ${junk.length}>>\n` +
+    `stream\n${junk}\nendstream\nendobj\ntrailer <</Root 1 0 R>>\n%%EOF\n`;
+  const r = await E.extractText(new Uint8Array(Buffer.from(doc, 'latin1')), 'x.pdf');
+  assert.match(r.text, /Alpha Bravo Charlie Delta Echo/);
+});
+
+test('a page that draws text but yields almost none is refused', async () => {
+  // Glyphs that map to nothing: the operators are there, the characters are
+  // not. That is a fragment, and a fragment must not reach the scorer.
+  const runs = Array.from({ length: 40 }, () => '<0000> Tj').join(' ');
+  const r = onePdf('', `BT /F1 12 Tf 72 700 Td ${runs} ET`);
+  await assert.rejects(() => E.extractText(r, 'x.pdf'), /Could not read this PDF|No readable text/);
+});
+
+test('the real fixtures clear the yield floor comfortably', async () => {
+  // Guard on the guard: the floor must never grow into a real document.
+  for (const name of ['resume-chromium.pdf', 'resume-chromium-times.pdf']) {
+    const r = await E.extractText(read(name), name);
+    assert.ok(r.text.length > 400, `${name} extracted only ${r.text.length} chars`);
+  }
+});
+
 // ── Failure paths ───────────────────────────────────────────────────
 
 test('rejects an empty file', async () => {

@@ -285,6 +285,8 @@
   }
 
   .hint { font-size: var(--step--1); color: var(--ink-3); }
+  /* A failed read must not look like a quiet note next to a live score. */
+  .hint.is-error { color: var(--sev-high); font-weight: 600; }
 
   .proof {
     white-space: pre-wrap;
@@ -5809,20 +5811,53 @@ const Extract = (() => {
     let from = obj.start + at + 6;
     if (raw[from] === '\r') from += 1;
     if (raw[from] === '\n') from += 1;
+
+    // Prefer the declared /Length. Hunting for the "endstream" keyword is
+    // wrong twice over: compressed bytes can spell it, and the keyword is
+    // preceded by an end-of-line that is indistinguishable from a final data
+    // byte. A real resume lost its only content stream to exactly that — the
+    // deflate stream ended in 0x0A, the trim ate it, inflate failed, and a
+    // text PDF was reported as scanned.
+    const dict = obj.body.slice(0, at);
+    const len = /\/Length\s+(\d+)\b(?!\s+\d+\s+R)/.exec(dict);
+    if (len) {
+      const end = from + Number(len[1]);
+      if (end <= raw.length && /^[\s]*endstream/.test(raw.slice(end, end + 24))) {
+        return { from, to: end };
+      }
+    }
+
     let to = raw.indexOf('endstream', from);
     if (to < 0) return null;
-    while (to > from && (raw[to - 1] === '\n' || raw[to - 1] === '\r')) to -= 1;
+    // Exactly one EOL separates the data from the keyword. Trimming greedily
+    // eats a data byte whenever the stream's last byte is itself a newline.
+    if (raw[to - 1] === '\n') to -= 1;
+    if (raw[to - 1] === '\r') to -= 1;
     return { from, to };
   }
 
+  /**
+   * Decode one object's stream.
+   *
+   * Returns {dict, data} on success and {dict, error} on failure. It used to
+   * return a bare null either way, and every caller treated that as "nothing
+   * here" and moved on — so a document whose only content stream failed to
+   * inflate extracted as empty and was reported as scanned. A decode failure
+   * is not an absence of text; it is text we could not read, and the two must
+   * not look the same to the caller.
+   *
+   * `unsupported` marks a filter we never claimed to handle (a JPEG image,
+   * say). That is a real absence and not a failure.
+   */
   async function objectStreamData(bytes, raw, obj) {
+    const at = obj.body.indexOf('stream');
+    const dict = at < 0 ? '' : obj.body.slice(0, at);
     const range = streamRange(raw, obj);
-    if (!range) return null;
-    const dict = obj.body.slice(0, obj.body.indexOf('stream'));
+    if (!range) return at < 0 ? null : { dict, error: 'no stream delimiter' };
     let data = bytes.subarray(range.from, range.to);
     if (/\/FlateDecode/.test(dict)) {
       data = await inflateFlate(data);
-      if (!data) return null;
+      if (!data) return { dict, error: 'compressed data would not inflate' };
       const pred = /\/Predictor\s+(\d+)/.exec(dict);
       if (pred && Number(pred[1]) >= 10) {
         const colors = Number((/\/Colors\s+(\d+)/.exec(dict) || [])[1] || 1);
@@ -5830,7 +5865,7 @@ const Extract = (() => {
         data = unpredict(data, colors, columns);
       }
     } else if (/\/(LZW|RunLength|CCITTFax|DCT|JPX)Decode/.test(dict)) {
-      return null; // not a text encoding we handle
+      return { dict, unsupported: true };
     }
     return { dict, data };
   }
@@ -5839,11 +5874,12 @@ const Extract = (() => {
    * PDF 1.5+ packs objects into compressed object streams. Expand them so
    * font and ToUnicode references resolve.
    */
-  async function expandObjectStreams(bytes, raw, objects) {
-    for (const [, obj] of [...objects]) {
+  async function expandObjectStreams(bytes, raw, objects, failures = []) {
+    for (const [id, obj] of [...objects]) {
       if (!/\/Type\s*\/ObjStm/.test(obj.body)) continue;
       const got = await objectStreamData(bytes, raw, obj);
-      if (!got) continue;
+      if (got && got.error) failures.push(`object stream ${id}: ${got.error}`);
+      if (!got || !got.data) continue;
       const n = Number((/\/N\s+(\d+)/.exec(got.dict) || [])[1] || 0);
       const first = Number((/\/First\s+(\d+)/.exec(got.dict) || [])[1] || 0);
       if (!n || !first) continue;
@@ -5908,7 +5944,7 @@ const Extract = (() => {
   };
 
   /** Build resourceName -> {cmap, twoByte} for every font in the document. */
-  async function buildFonts(bytes, raw, objects) {
+  async function buildFonts(bytes, raw, objects, failures = []) {
     const fonts = new Map();
 
     const cmapFor = async (fontNum) => {
@@ -5919,7 +5955,8 @@ const Extract = (() => {
       let cmap = null;
       if (tuNum !== null && objects.has(tuNum)) {
         const got = await objectStreamData(bytes, raw, objects.get(tuNum));
-        if (got) cmap = parseCMap(latin1(got.data));
+        if (got && got.error) failures.push(`character map ${tuNum}: ${got.error}`);
+        if (got && got.data) cmap = parseCMap(latin1(got.data));
       }
       return { cmap, twoByte };
     };
@@ -6167,6 +6204,13 @@ const Extract = (() => {
       .trim();
   }
 
+  /**
+   * Letters per text-showing operator below which a read is a fragment, not a
+   * document. Measured against real producer output: Chromium/Skia lands at
+   * 0.8 for a dense resume, higher for prose. A broken decode lands near zero.
+   */
+  const YIELD_FLOOR = 0.25;
+
   async function extractPdf(bytes) {
     const raw = latin1(bytes);
     const warnings = [];
@@ -6178,27 +6222,66 @@ const Extract = (() => {
     }
 
     const objects = scanObjects(raw);
-    await expandObjectStreams(bytes, raw, objects);
-    const fonts = await buildFonts(bytes, raw, objects);
+    const failures = [];
+    await expandObjectStreams(bytes, raw, objects, failures);
+    const fonts = await buildFonts(bytes, raw, objects, failures);
 
     let text = '';
-    for (const [, obj] of objects) {
+    let textOps = 0;
+    for (const [id, obj] of objects) {
       const dict = obj.body.slice(0, Math.max(0, obj.body.indexOf('stream')));
       if (/\/Type\s*\/(ObjStm|XRef|Metadata|Font|FontDescriptor)/.test(dict)) continue;
       const got = await objectStreamData(bytes, raw, obj);
       if (!got) continue;
+      // An image that fails to decode costs us nothing; a content stream that
+      // fails costs us the page.
+      if (got.error && !/\/Subtype\s*\/Image/.test(dict)) {
+        failures.push(`object ${id}: ${got.error}`);
+        continue;
+      }
+      if (!got.data) continue;
       const content = latin1(got.data);
       if (!/\bBT\b/.test(content) || !/\b(Tj|TJ)\b/.test(content)) continue;
+      textOps += (content.match(/\b(?:Tj|TJ)\b/g) || []).length;
       text += runContent(tokenizeContent(content), fonts) + '\n';
     }
 
     const cleaned = tidy(text);
     const letters = (cleaned.match(/[A-Za-z]/g) || []).length;
 
+    // ── Refuse to hand back a partial read ──────────────────────────
+    //
+    // A confident score on a failed extraction is worse than an error: the
+    // reader has no way to tell "your writing is clean" from "we scored the
+    // wrong bytes". So anything short of a clean read stops here.
+
+    if (failures.length) {
+      throw new Error(
+        `Could not read this PDF — ${failures.length} ` +
+          `${failures.length === 1 ? 'section' : 'sections'} of it failed to decode ` +
+          `(${failures[0]}). Scoring what did come through would be worse than ` +
+          'this error. Export a fresh PDF from the original document, or paste the text.'
+      );
+    }
+
+    // The page said "show this text" far more often than we produced text.
+    // Whatever the cause — an encoding we misread, a font we could not map —
+    // what we hold is a fragment, and a fragment must not be scored.
+    // A healthy read lands near or above one letter per run: producers emit a
+    // TJ per word or per kerned cluster, so the real fixtures sit at 0.8-3.
+    // A quarter of a letter per run means the glyphs are not reaching us.
+    if (textOps >= 20 && letters < textOps * YIELD_FLOOR) {
+      throw new Error(
+        `Could not read this PDF — it draws ${textOps} runs of text but only ` +
+          `${letters} characters came through, so what we have is a fragment. ` +
+          'Export a fresh PDF from the original document, or paste the text.'
+      );
+    }
+
     if (letters < 20) {
       const images = /\/Subtype\s*\/Image/.test(raw);
       throw new Error(
-        images
+        images && !textOps
           ? 'This PDF looks scanned — the pages are images of text, which needs OCR. Paste the text instead, or export a text PDF from the original document.'
           : 'No readable text found in this PDF. If it was scanned or uses an unusual font encoding, paste the text instead.'
       );
@@ -6962,10 +7045,14 @@ const ScanEngine = (() => {
         draft.scrollTop = 0;
         run();
         const extra = result.warnings.length ? ` ${result.warnings.join(' ')}` : '';
+        $('hint').classList.remove('is-error');
         $('hint').textContent =
           `Read ${file.name}.${extra} Check it came through cleanly before you trust the score.`;
       } catch (err) {
         // The extractor's messages say what to do next, so show them as-is.
+        // Nothing is scored: a number beside "could not read this file" is
+        // worse than the error alone, because they read as one verdict.
+        $('hint').classList.add('is-error');
         $('hint').textContent = err && err.message ? err.message : 'Could not read that file.';
       } finally {
         btn.textContent = label;
