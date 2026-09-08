@@ -121,3 +121,37 @@ finding, so the number and the list can never disagree.
 | 60-79 | Mostly like you |
 | 35-59 | Drifting from your voice |
 | 0-34 | Doesn't sound like you |
+
+## Editing toward the writer: "More like me"
+
+Some voice findings can be acted on mechanically, using nothing but the
+writer's own observed bands. **Never optimize the score.** Every edit must
+trace to one listed finding and be reported by name; the number moves
+afterwards as a consequence. A change made to raise the match turns the
+measurement into a target and empties it of meaning — and a draft edited
+toward a statistic is not more like its author, only more compliant with a
+statistic derived from them.
+
+Stop at the band edge, not the middle. The writer's range is the target, and
+landing every draft on their mean would flatten the variation the range exists
+to describe.
+
+| Will edit | How |
+|---|---|
+| Paragraph length | see `scanner/voice-fix.js` |
+| Contractions | see `scanner/voice-fix.js` |
+| Semicolons | see `scanner/voice-fix.js` |
+| Dashes | see `scanner/voice-fix.js` |
+| Words you never use | see `scanner/voice-fix.js` |
+
+| Never edits | Why |
+|---|---|
+| sentenceLength | Splitting a sentence needs the clause boundary, and often a new subject. |
+| readingLevel | Moving the grade level means substituting vocabulary, not moving punctuation. |
+| sentenceOpeners | Varying how sentences begin is rewriting them. |
+| commaRate | Removing a comma can change what the sentence means. |
+| parentheticalRate | An aside carries content; cutting it loses information. |
+| signatureWords | Injecting your own words to raise the match would game the number. |
+
+Report those as still the writer's work. Guessing at them produces confident
+nonsense, which is worse than saying the sentence needs a person.

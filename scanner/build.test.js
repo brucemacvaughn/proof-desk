@@ -103,20 +103,24 @@ test('the built page evaluates its engines without a DOM', () => {
   // context. Catches a syntax error introduced by inlining before it ships.
   const vm = require('vm');
   const blocks = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
-  const engineBlocks = blocks.filter(
-    (b) =>
-      b.includes('const AIDetector') ||
-      b.includes('const ResumeRules') ||
-      b.includes('const Fixer') ||
-      b.includes('const Extract') ||
-      b.includes('const Scoring') ||
-      b.includes('const HouseRules') ||
-      b.includes('const Corpus') ||
-      b.includes('const Fingerprint') ||
-      b.includes('const Voice') ||
-      b.includes('const ScanEngine')
+  const ENGINES = [
+    'AIDetector', 'ResumeRules', 'Fixer', 'Extract', 'Scoring', 'HouseRules',
+    'Corpus', 'Fingerprint', 'Voice', 'VoiceFix', 'ScanEngine',
+  ];
+  // Each engine gets exactly one block. Naming them beats a bare count: a
+  // missing engine and a duplicated one both read as the wrong number.
+  for (const name of ENGINES) {
+    const found = blocks.filter((b) => new RegExp(`const ${name} = `).test(b));
+    assert.strictEqual(found.length, 1, `${name}: ${found.length} blocks define it`);
+  }
+  const engineBlocks = blocks.filter((b) =>
+    ENGINES.some((name) => new RegExp(`const ${name} = `).test(b))
   );
-  assert.strictEqual(engineBlocks.length, 10, `expected 10 engine blocks, got ${engineBlocks.length}`);
+  assert.strictEqual(
+    engineBlocks.length,
+    ENGINES.length,
+    `expected ${ENGINES.length} engine blocks, got ${engineBlocks.length}`
+  );
 
   const sandbox = { module: undefined, console };
   vm.createContext(sandbox);

@@ -29,6 +29,7 @@ node scanner/scan.js essay.md                    # auto-detects essay vs resume
 node scanner/scan.js resume.txt --mode resume
 cat draft.txt | node scanner/scan.js --json
 node scanner/scan.js essay.md --fix > clean.md   # cleaned draft to stdout
+node scanner/scan.js essay.md --more-like-me     # edited toward your own voice
 node scanner/scan.js essay.md --fail-over 40     # exit 1 when the score is over 40
 ```
 
@@ -257,6 +258,41 @@ list can never disagree.
 | 35–59 | Drifting from your voice |
 | 0–34 | Doesn't sound like you |
 
+### "More like me"
+
+Some voice findings can be acted on mechanically, from the writer's own bands
+and nothing else. `scanner/voice-fix.js` does that — in the page as a button on
+the findings panel and an **Apply** on each actionable card, and in the CLI as
+`--more-like-me`.
+
+**It never optimizes the score.** Every edit traces to one listed finding and is
+named in the report; the number moves afterwards as a consequence. A button that
+chased the score would turn the measurement into a target and empty it of
+meaning — a draft edited toward a statistic is not more like its author, only
+more compliant with a statistic derived from them. For the same reason the edits
+stop at the writer's band edge, never its middle: the range is the point, and
+landing every draft on the mean would flatten the variation the range describes.
+
+| Will edit | How |
+|---|---|
+| Paragraph length | Splits at sentence boundaries, or joins. Not one word changes. |
+| Contractions | `it is` ⇄ `it's`, from a fixed table, capitalization preserved. |
+| Semicolons | Semicolon → full stop, next word capitalized. |
+| Dashes | Dash → comma, or → full stop where it joins two independent clauses. |
+| Words you never use | Cuts a sentence-initial discourse adverb: `Furthermore, we shipped` → `We shipped`. |
+
+| Never edits | Why |
+|---|---|
+| Sentence length | Splitting needs the clause boundary, and often a new subject. |
+| Reading level | Moving the grade means substituting vocabulary. |
+| Sentence openers | Varying how sentences begin is rewriting them. |
+| Comma rate | Removing a comma can change what the sentence means. |
+| Parentheticals | An aside carries content; cutting it loses information. |
+| Signature words | Injecting your own words to raise the match would game the number. |
+
+Those come back as still your work, each with the reason. Guessing at them would
+produce confident nonsense, which is worse than saying a sentence needs a person.
+
 ## The score bands
 
 `scanner/scoring.js` is the source of truth for what a number means. The CLI,
@@ -430,6 +466,7 @@ Use it to sharpen a draft. Don't use it to decide whether someone cheated.
 | `scanner/corpus.js` | Reference corpus: storage, screening, readiness. |
 | `scanner/fingerprint.js` | Voice profile: bands, per-metric confidence, evidence. |
 | `scanner/voice.js` | VOICE MATCH: band comparison and specific deviations. |
+| `scanner/voice-fix.js` | "More like me": the voice edits a machine can make honestly. |
 | `scanner/sync-rules.js` | Regenerates the JSON and skill copies from it. |
 | `scanner/engine.js` | Combines the engines and picks essay vs resume mode. |
 | `scanner/resume-rules.js` | The resume genre layer. |

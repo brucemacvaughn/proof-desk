@@ -24,6 +24,7 @@ const HouseRules = require('./house-rules.js');
 const Corpus = require('./corpus.js');
 const Fingerprint = require('./fingerprint.js');
 const Voice = require('./voice.js');
+const VoiceFix = require('./voice-fix.js');
 
 const ROOT = path.join(__dirname, '..');
 const SKILL_DIR = path.join(ROOT, '.claude', 'skills', 'avoid-ai-writing');
@@ -201,6 +202,31 @@ finding, so the number and the list can never disagree.
 | Score | Means |
 |---|---|
 ${Voice.BANDS.map((b) => `| ${b.min}-${b.max} | ${b.label} |`).join('\n')}
+
+## Editing toward the writer: "More like me"
+
+Some voice findings can be acted on mechanically, using nothing but the
+writer's own observed bands. **Never optimize the score.** Every edit must
+trace to one listed finding and be reported by name; the number moves
+afterwards as a consequence. A change made to raise the match turns the
+measurement into a target and empties it of meaning — and a draft edited
+toward a statistic is not more like its author, only more compliant with a
+statistic derived from them.
+
+Stop at the band edge, not the middle. The writer's range is the target, and
+landing every draft on their mean would flatten the variation the range exists
+to describe.
+
+| Will edit | How |
+|---|---|
+${Object.entries(VoiceFix.FIXABLE).map(([id, label]) => `| ${label} | see \`scanner/voice-fix.js\` |`).join('\n')}
+
+| Never edits | Why |
+|---|---|
+${Object.entries(VoiceFix.MANUAL_REASON).map(([id, why]) => `| ${id} | ${why} |`).join('\n')}
+
+Report those as still the writer's work. Guessing at them produces confident
+nonsense, which is worse than saying the sentence needs a person.
 `;
 }
 

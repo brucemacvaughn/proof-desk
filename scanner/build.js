@@ -27,6 +27,7 @@ const SOURCES = {
   voice: path.join(__dirname, 'voice.js'),
   extract: path.join(__dirname, 'extract.js'),
   fixer: path.join(__dirname, 'fixer.js'),
+  'voice-fix': path.join(__dirname, 'voice-fix.js'),
   engine: path.join(__dirname, 'engine.js'),
 };
 

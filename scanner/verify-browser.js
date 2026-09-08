@@ -309,6 +309,73 @@ async function readout(page) {
       !withAI.findings.some((t) => /similarity|% match/i.test(t))
     );
 
+    // ── More like me ────────────────────────────────────────────
+    //
+    // A dense, formal block: one paragraph of twelve sentences, which the
+    // corpus's own paragraph band flags.
+    const DENSE = [
+      'We shipped the change on Tuesday.', 'It is not the fix we planned.',
+      'The queue was backing up behind a lock.', 'We could not reproduce it on staging.',
+      'I am fairly sure the retry loop is the cause.', 'They are going to test it again tomorrow.',
+      'There is one more case we have not covered.', 'We will not know until the load returns.',
+      'That is the whole picture as of tonight.', 'You are welcome to look at the trace.',
+      'It is worth another pair of eyes.', 'We have not closed the ticket yet.',
+    ].join(' ');
+
+    await page.fill('#draft', DENSE);
+    await page.waitForTimeout(900);
+    const beforeFix = await page.evaluate(() => ({
+      voice: document.getElementById('voice-score').textContent.trim(),
+      offered: !document.getElementById('like-me').hidden,
+      perCard: document.querySelectorAll('.finding-apply').length,
+      undoShown: !document.getElementById('like-me-undo').hidden,
+      paras: document.getElementById('draft').value.split(/\n\s*\n+/).length,
+    }));
+    check('More like me is offered when a finding can be acted on', beforeFix.offered === true);
+    check('a fixable finding carries its own Apply', beforeFix.perCard >= 1, `${beforeFix.perCard}`);
+    check('undo stays hidden until something is applied', beforeFix.undoShown === false);
+
+    await page.click('#like-me');
+    await page.waitForTimeout(900);
+    const afterFix = await page.evaluate(() => ({
+      voice: document.getElementById('voice-score').textContent.trim(),
+      hint: document.getElementById('hint').textContent,
+      paras: document.getElementById('draft').value.split(/\n\s*\n+/).length,
+      words: document.getElementById('draft').value.split(/\s+/).filter(Boolean).length,
+      undoShown: !document.getElementById('like-me-undo').hidden,
+    }));
+    check('applying splits the dense paragraph', afterFix.paras > beforeFix.paras, `${beforeFix.paras} → ${afterFix.paras}`);
+    check(
+      'the paragraph edit changes not one word',
+      afterFix.words === DENSE.split(/\s+/).filter(Boolean).length,
+      `${afterFix.words}`
+    );
+    check(
+      'the hint names the edit that was made',
+      /split \d+ paragraph/i.test(afterFix.hint),
+      afterFix.hint.slice(0, 120)
+    );
+    check(
+      'the hint says the score is not the target',
+      /not what they aim at/i.test(afterFix.hint),
+      afterFix.hint.slice(0, 160)
+    );
+    check(
+      'the voice score follows the edit',
+      parseInt(afterFix.voice, 10) > parseInt(beforeFix.voice, 10),
+      `${beforeFix.voice} → ${afterFix.voice}`
+    );
+    check('undo appears once an edit lands', afterFix.undoShown === true);
+
+    await page.click('#like-me-undo');
+    await page.waitForTimeout(900);
+    const undone = await page.evaluate(() => ({
+      voice: document.getElementById('voice-score').textContent.trim(),
+      text: document.getElementById('draft').value,
+    }));
+    check('undo restores the draft exactly', undone.text === DENSE);
+    check('undo restores the score', undone.voice === beforeFix.voice, `${undone.voice} vs ${beforeFix.voice}`);
+
     // The writer's own work, in a register the corpus contains, must be clean.
     await page.fill('#draft', rd('fixtures/human-technical.md'));
     await page.waitForTimeout(1200);

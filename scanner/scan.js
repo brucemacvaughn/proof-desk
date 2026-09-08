@@ -33,6 +33,7 @@ const Corpus = require('./corpus.js');
 const Fingerprint = require('./fingerprint.js');
 const Voice = require('./voice.js');
 const Extract = require('./extract.js');
+const VoiceFix = require('./voice-fix.js');
 const os = require('os');
 
 // ═══ Terminal helpers ════════════════════════════════════════════════
@@ -63,7 +64,7 @@ function bar(score, width = 28) {
 // ═══ Args ════════════════════════════════════════════════════════════
 
 function parseArgs(argv) {
-  const opts = { mode: 'auto', json: false, failOver: null, context: 'general', file: null, quiet: false, fix: false };
+  const opts = { mode: 'auto', json: false, failOver: null, context: 'general', file: null, quiet: false, fix: false, likeMe: false };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--mode') opts.mode = argv[++i];
@@ -72,6 +73,7 @@ function parseArgs(argv) {
     else if (a === '--context') opts.context = argv[++i];
     else if (a === '--fail-over') opts.failOver = Number(argv[++i]);
     else if (a === '--fix') opts.fix = true;
+    else if (a === '--more-like-me' || a === '--like-me') opts.likeMe = true;
     else if (a === '--rules') opts.rulesPath = argv[++i];
     else if (a === '--no-house') opts.noHouse = true;
     else if (a === '--corpus') opts.corpusPath = argv[++i];
@@ -98,6 +100,8 @@ Options
   --corpus-status              report corpus readiness and exit
   --fingerprint                print the voice profile and exit
   --fix                        print the draft with the definite fixes applied
+  --more-like-me               print the draft edited toward your own voice
+                               (needs a corpus; never optimizes the score)
   --fail-over <n>              exit 1 when the AI score is above n
   --json                       machine-readable output
   --quiet, -q                  scores only, no issue list
@@ -487,19 +491,42 @@ async function main() {
   const profile = corpus ? Fingerprint.build(Corpus.usableSamples(corpus.samples)) : null;
 
   const house = loadHouseRules(opts);
-  const result = scan(text, {
+  const scanOpts = {
     ...opts,
     profile,
     houseRules: house.rules === undefined ? undefined : house.rules.length ? house.rules : false,
-  });
+  };
+  const result = scan(text, scanOpts);
 
   // --fix writes the cleaned draft to stdout and nothing else, so it can be
   // redirected into a file or piped onward. The summary goes to stderr.
+  if (opts.likeMe) {
+    if (!result.voice || !result.voice.available) {
+      process.stderr.write(
+        `scan: no voice comparison to work from — ${
+          (result.voice && result.voice.reason) || 'add a corpus of your own unassisted writing'
+        }\n`
+      );
+      return 2;
+    }
+    const out = VoiceFix.fix(text, result.voice);
+    process.stdout.write(out.text);
+    const after = scan(out.text, scanOpts);
+    const did = out.applied.map((a) => a.what).join(', ') || 'nothing it could do safely';
+    process.stderr.write(
+      `\n  ${dim(did)}\n` +
+        `  ${dim(`voice ${result.voice.score} -> ${after.voice ? after.voice.score : '—'}`)} ` +
+        `${dim('·')} ${dim(`${out.manual.length} left for you`)}\n` +
+        out.manual.map((m) => `  ${dim('·')} ${dim(`${m.label}: ${m.reason}`)}\n`).join('')
+    );
+    return 0;
+  }
+
   if (opts.fix) {
     const issues = ScanEngine.allIssues(result);
     const out = Fixer.fix(text, issues);
     process.stdout.write(out.text);
-    const after = scan(out.text, opts);
+    const after = scan(out.text, scanOpts);
     process.stderr.write(
       `\n  ${dim(`applied ${out.applied} fix${out.applied === 1 ? '' : 'es'}`)} ` +
         `${dim('·')} ${dim(`score ${result.aiScore} -> ${after.aiScore}`)} ` +

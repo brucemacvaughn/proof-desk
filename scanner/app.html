@@ -646,6 +646,23 @@
 
   .chips { display: flex; gap: .3125rem; flex-wrap: wrap; }
 
+  /* Apply, on the one finding it belongs to. */
+  .finding-apply {
+    margin-top: .4375rem;
+    border: 1px solid var(--rule-strong);
+    background: var(--surface);
+    color: var(--ink);
+    border-radius: 6px;
+    padding: .125rem .5rem;
+    font-family: var(--mono);
+    font-size: .625rem;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .finding-apply:hover { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
   .chip {
     display: inline-flex;
     align-items: center;
@@ -983,6 +1000,8 @@
       <span class="eyebrow">Findings</span>
       <div class="finding-tools">
         <div class="chips" id="finding-chips"></div>
+        <button type="button" class="btn" id="like-me" hidden>More like me</button>
+        <button type="button" class="btn" id="like-me-undo" hidden>Undo</button>
         <button type="button" class="btn" id="copy">Copy report</button>
       </div>
     </div>
@@ -1019,6 +1038,7 @@
 <script>/*INJECT:voice*/</script>
 <script>/*INJECT:extract*/</script>
 <script>/*INJECT:fixer*/</script>
+<script>/*INJECT:voice-fix*/</script>
 <script>/*INJECT:engine*/</script>
 <script>
   (() => {
@@ -1938,8 +1958,20 @@
 
     const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-    function findingCard(issue, locatable) {
+    function findingCard(issue, locatable, applyIndex) {
       const canJump = locatable.has(issue.id);
+      if (applyIndex !== undefined) {
+        return (
+          `<div class="finding" data-id="${issue.id}" data-sev="${esc(issue.severity)}" data-locatable="0">` +
+          '<span class="finding-top">' +
+          `<span class="finding-kind">${esc(issue.label)}</span>` +
+          '</span>' +
+          `<span class="finding-text">${esc(issue.text)}</span>` +
+          (issue.suggestion ? `<span class="finding-fix">${esc(issue.suggestion)}</span>` : '') +
+          `<button type="button" class="finding-apply" data-apply="${applyIndex}">Apply</button>` +
+          '</div>'
+        );
+      }
       return (
         `<button type="button" class="finding" data-id="${issue.id}" data-sev="${esc(issue.severity)}" data-locatable="${canJump ? 1 : 0}">` +
         '<span class="finding-top">' +
@@ -1993,7 +2025,9 @@
           id: slug(title),
           title,
           count: group.length,
-          cards: group.map((i) => findingCard(i, locatable)).join(''),
+          cards: group
+            .map((i) => findingCard(i, locatable, i.source === 'voice' ? fixableIndex(i, r) : undefined))
+            .join(''),
         });
       }
 
@@ -2041,7 +2075,90 @@
       $('findings')
         .querySelectorAll('.finding[data-locatable="1"]')
         .forEach((el) => el.addEventListener('click', () => jumpTo(el.dataset.id)));
+
+      $('findings')
+        .querySelectorAll('.finding-apply')
+        .forEach((el) =>
+          el.addEventListener('click', () => applyVoice([Number(el.dataset.apply)]))
+        );
+
+      $('like-me').hidden = !(r.voice && VoiceFix.canFix(r.voice).length);
     }
+
+    // ── More like me ─────────────────────────────────────────────
+    //
+    // Applies the voice findings a machine can carry out honestly, using the
+    // writer's own observed bands. It never optimizes the score: each edit
+    // traces to one listed finding and is named in the hint, and the number
+    // moves afterwards as a consequence. A button that chased the score
+    // would turn the measurement into a target and empty it of meaning.
+
+    let voiceUndo = null;
+
+    /** The index of this issue in the comparison, if it can be acted on. */
+    function fixableIndex(issue, r) {
+      const list = (r.voice && r.voice.findings) || [];
+      const at = list.findIndex((f) => f.metric === issue.metric && f.text === issue.text);
+      if (at < 0) return undefined;
+      return VoiceFix.canFix({ ...r.voice, findings: [list[at]] }).length ? at : undefined;
+    }
+
+    function applyVoice(indices) {
+      if (!last || !last.voice || !last.voice.available) return;
+      const picked = indices.map((i) => last.voice.findings[i]).filter(Boolean);
+      if (!picked.length) return;
+
+      const before = draft.value;
+      let out;
+      try {
+        out = VoiceFix.fix(before, { ...last.voice, findings: picked });
+      } catch (err) {
+        console.error(err);
+        $('hint').textContent = 'Could not edit that one.';
+        return;
+      }
+
+      if (!out.changed) {
+        $('hint').textContent =
+          out.manual.length && out.manual[0].reason
+            ? out.manual[0].reason
+            : 'Nothing here could be edited safely.';
+        return;
+      }
+
+      voiceUndo = before;
+      $('like-me-undo').hidden = false;
+      draft.value = out.text;
+      setView('draft');
+      run();
+
+      const did = out.applied.map((a) => a.what).join(', ');
+      const left = out.manual.length;
+      $('hint').textContent =
+        `${did.charAt(0).toUpperCase()}${did.slice(1)}. ` +
+        (left ? `${left} finding${left === 1 ? '' : 's'} still need${left === 1 ? 's' : ''} you. ` : '') +
+        'The score follows the edits; it is not what they aim at.';
+    }
+
+    $('like-me').addEventListener('click', () => {
+      if (!last || !last.voice) return;
+      const list = last.voice.findings || [];
+      applyVoice(
+        list
+          .map((f, i) => i)
+          .filter((i) => VoiceFix.canFix({ ...last.voice, findings: [list[i]] }).length)
+      );
+    });
+
+    $('like-me-undo').addEventListener('click', () => {
+      if (voiceUndo === null) return;
+      draft.value = voiceUndo;
+      voiceUndo = null;
+      $('like-me-undo').hidden = true;
+      setView('draft');
+      run();
+      $('hint').textContent = 'Put back the way you wrote it.';
+    });
 
     function jumpTo(id) {
       setView('proof');
