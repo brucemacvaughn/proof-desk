@@ -36,6 +36,7 @@
     --step-2: 1.375rem;
     --step-3: 1.875rem;
     --step-4: 2.625rem;
+    --step-5: clamp(3rem, 5.5vw, 4.25rem);
 
     --sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     --serif: "Newsreader", ui-serif, Georgia, "Times New Roman", serif;
@@ -202,13 +203,61 @@
 
   .btn-icon { padding: .4375rem .5625rem; line-height: 1; }
 
+  /* ── Verdict bar ─────────────────────────────────────────────
+     The scores are what the page is for, so they take the full width
+     above the work, instead of the top of a rail you have to scroll. */
+  .verdict-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+
+  .lead { flex: 1.7 1 22rem; }
+  .aux  { flex: 1 1 17rem; display: flex; flex-direction: column; gap: 1px; background: var(--rule); }
+
+  .tile {
+    background: var(--surface);
+    padding: 1rem 1.125rem 1.125rem;
+    display: flex;
+    flex-direction: column;
+    gap: .625rem;
+    min-width: 0;
+  }
+
+  .tile.lead { padding: 1.125rem 1.25rem 1.25rem; position: relative; isolation: isolate; }
+
+  /* The page spends its colour in exactly one place: a wash behind the
+     headline score, keyed to the band it landed in. */
+  .tile.lead::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: radial-gradient(120% 150% at 100% 0%, var(--wash, transparent), transparent 65%);
+    transition: background .4s;
+  }
+
+  .tile.lead[data-tone="low"]  { --wash: var(--sev-low-wash); }
+  .tile.lead[data-tone="mid"]  { --wash: var(--sev-mid-wash); }
+  .tile.lead[data-tone="high"] { --wash: var(--sev-high-wash); }
+
+  .tile .readout-num { font-size: var(--step-3); }
+  .tile.lead .readout-num { font-size: var(--step-5); }
+  .tile.lead .band { font-size: var(--step-1); }
+
+  .aux .tile { flex: 1; justify-content: center; }
+
   /* ── Workbench ───────────────────────────────────────────────── */
   .bench {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 24rem;
+    grid-template-columns: minmax(0, 1fr) 21rem;
     gap: 1.25rem;
     align-items: start;
-    flex: 1;
   }
 
   @media (max-width: 60rem) {
@@ -426,12 +475,16 @@
   .stats {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr));
-    gap: .0625rem;
-    background: var(--rule);
+    background: var(--surface);
     border-top: 1px solid var(--rule);
   }
 
-  .stat { background: var(--surface); padding: .625rem .75rem; }
+  .stat {
+    background: var(--surface);
+    padding: .625rem .75rem;
+    border-right: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+  }
   .stat dt { font-family: var(--mono); font-size: .625rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 .1875rem; }
   .stat dd { margin: 0; font-family: var(--mono); font-size: var(--step-0); font-variant-numeric: tabular-nums; }
 
@@ -581,19 +634,61 @@
   .rules-msg[data-kind="err"] { color: var(--sev-high); }
   .rules-msg[data-kind="ok"] { color: var(--sev-low); }
 
-  /* ── Findings ────────────────────────────────────────────────── */
-  .findings { max-height: min(30rem, 60vh); overflow-y: auto; }
+  /* ── Findings ─────────────────────────────────────────────────
+     Full width under the manuscript, in columns. It used to be the
+     fifth panel of a rail and scrolled inside its own box, so reading
+     a finding meant scrolling the page past four panels and then
+     scrolling again inside a 30rem window. One page scroll now, and
+     the chips jump straight to a category. */
+  .findings-panel { scroll-margin-top: 1rem; }
+
+  .finding-tools { display: flex; align-items: center; gap: .625rem; flex-wrap: wrap; }
+
+  .chips { display: flex; gap: .3125rem; flex-wrap: wrap; }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .375rem;
+    border: 1px solid var(--rule-strong);
+    background: var(--surface);
+    color: var(--ink-2);
+    border-radius: 99px;
+    padding: .1875rem .625rem;
+    font-family: var(--mono);
+    font-size: .6875rem;
+    letter-spacing: .04em;
+    cursor: pointer;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+
+  .chip:hover { border-color: var(--ink-3); color: var(--ink); }
+
+  .chip[aria-pressed="true"] {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--ground);
+  }
+
+  .chip b { font-weight: 600; font-variant-numeric: tabular-nums; }
 
   .group-head {
-    position: sticky;
-    top: 0;
     background: var(--surface-2);
     border-bottom: 1px solid var(--rule);
+    border-top: 1px solid var(--rule);
     padding: .4375rem .875rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    z-index: 1;
+  }
+
+  .f-group:first-child .group-head { border-top: 0; }
+
+  .f-group { background: var(--surface); }
+
+  .finding-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
   }
 
   .finding {
@@ -601,10 +696,11 @@
     width: 100%;
     text-align: left;
     border: 0;
+    border-right: 1px solid var(--rule);
     border-bottom: 1px solid var(--rule);
     border-left: 3px solid transparent;
-    background: transparent;
-    padding: .625rem .875rem .6875rem;
+    background: var(--surface);
+    padding: .6875rem .875rem .75rem;
     cursor: pointer;
     transition: background .15s;
   }
@@ -625,8 +721,29 @@
   .finding-note { display: block; font-size: .6875rem; color: var(--ink-3); margin-top: .125rem; }
   .finding-note::before { content: "· "; }
 
-  .empty { padding: 2rem 1rem; text-align: center; color: var(--ink-2); font-size: var(--step--1); }
+  .empty { padding: 2.25rem 1rem 2.5rem; text-align: center; color: var(--ink-2); font-size: var(--step--1); }
   .empty strong { display: block; font-family: var(--serif); font-size: var(--step-2); color: var(--ink); margin-bottom: .25rem; font-weight: 500; }
+
+  /* What the resting page says it checks, so an empty desk still shows
+     the reader what the tool does. */
+  .empty-what {
+    display: flex;
+    justify-content: center;
+    gap: .375rem;
+    flex-wrap: wrap;
+    margin-top: .875rem;
+  }
+
+  .empty-what span {
+    font-family: var(--mono);
+    font-size: .625rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    border: 1px solid var(--rule);
+    border-radius: 99px;
+    padding: .125rem .5rem;
+  }
 
   /* ── Footer ──────────────────────────────────────────────────── */
   .colophon {
@@ -678,6 +795,58 @@
     </div>
   </header>
 
+  <section class="verdict-bar" aria-label="Verdict">
+    <div class="tile lead" id="lead-tile">
+      <div class="readout-top">
+        <span class="eyebrow">AI-writing score</span>
+        <span class="eyebrow" id="mode-note">—</span>
+      </div>
+      <span class="readout-num" id="ai-score">—<span class="of">/100</span></span>
+      <div class="meter" id="ai-meter-track"><i id="ai-meter" style="width:0%"></i></div>
+      <p class="band" id="ai-band" hidden><span class="band-dot"></span><span id="ai-band-label"></span></p>
+      <p class="readout-label" id="ai-label">Paste a draft below, or load one of the samples.</p>
+      <div id="scale-wrap">
+        <span class="eyebrow">The scale</span>
+        <div class="scale" id="scale"></div>
+      </div>
+    </div>
+
+    <div class="aux">
+      <div class="tile" id="voice-block" hidden>
+        <div class="readout-top">
+          <span class="eyebrow">Voice match</span>
+          <span class="readout-num" id="voice-score">—<span class="of">/100</span></span>
+        </div>
+        <div class="meter"><i id="voice-meter" style="width:0%"></i></div>
+        <p class="band" id="voice-band" hidden><span class="band-dot"></span><span id="voice-band-label"></span></p>
+        <p class="readout-label" id="voice-label"></p>
+      </div>
+
+      <div class="tile" id="craft-block" hidden>
+        <div class="readout-top">
+          <span class="eyebrow">Resume craft</span>
+          <span class="readout-num" id="craft-score">—<span class="of">/100</span></span>
+        </div>
+        <div class="meter"><i id="craft-meter" style="width:0%"></i></div>
+        <p class="readout-label" id="craft-label">Structure, metrics, and verbs — separate from how AI it sounds.</p>
+      </div>
+
+      <div class="tile probs" id="probs" hidden>
+        <span class="eyebrow">How it classifies</span>
+        <div class="probs-bar" aria-hidden="true">
+          <span id="p-human" style="flex-grow:1;background:var(--sev-low)"></span>
+          <span id="p-mixed" style="flex-grow:0;background:var(--sev-mid)"></span>
+          <span id="p-ai" style="flex-grow:0;background:var(--sev-high)"></span>
+        </div>
+        <div class="probs-key">
+          <span><i style="background:var(--sev-low)"></i><span id="k-human">human 0%</span></span>
+          <span><i style="background:var(--sev-mid)"></i><span id="k-mixed">mixed 0%</span></span>
+          <span><i style="background:var(--sev-high)"></i><span id="k-ai">ai 0%</span></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <div class="bench">
     <section class="panel sheet" aria-label="Manuscript">
       <div class="dropzone" id="dropzone" hidden><span>Drop a PDF, .docx, or text file</span></div>
@@ -709,59 +878,9 @@
     </section>
 
     <aside class="rail">
-      <section class="panel" aria-label="Verdict">
+      <section class="panel" aria-label="Reading">
         <div class="panel-head">
           <span class="eyebrow">Reading</span>
-          <span class="eyebrow" id="mode-note">—</span>
-        </div>
-        <div class="verdict">
-          <div class="readout">
-            <div class="readout-top">
-              <span class="eyebrow">AI-writing score</span>
-              <span class="readout-num" id="ai-score">—<span class="of">/100</span></span>
-            </div>
-            <div class="meter" id="ai-meter-track"><i id="ai-meter" style="width:0%"></i></div>
-            <p class="band" id="ai-band" hidden><span class="band-dot"></span><span id="ai-band-label"></span></p>
-            <p class="readout-label" id="ai-label">Paste something to start.</p>
-          </div>
-
-          <div class="readout" id="voice-block" hidden>
-            <div class="readout-top">
-              <span class="eyebrow">Voice match</span>
-              <span class="readout-num" id="voice-score">—<span class="of">/100</span></span>
-            </div>
-            <div class="meter"><i id="voice-meter" style="width:0%"></i></div>
-            <p class="band" id="voice-band" hidden><span class="band-dot"></span><span id="voice-band-label"></span></p>
-            <p class="readout-label" id="voice-label"></p>
-          </div>
-
-          <div class="readout" id="craft-block" hidden>
-            <div class="readout-top">
-              <span class="eyebrow">Resume craft</span>
-              <span class="readout-num" id="craft-score">—<span class="of">/100</span></span>
-            </div>
-            <div class="meter"><i id="craft-meter" style="width:0%"></i></div>
-            <p class="readout-label" id="craft-label">Structure, metrics, and verbs — separate from how AI it sounds.</p>
-          </div>
-
-          <div id="scale-wrap">
-            <span class="eyebrow">The scale</span>
-            <div class="scale" id="scale"></div>
-          </div>
-
-          <div class="probs" id="probs" hidden>
-            <span class="eyebrow">How it classifies</span>
-            <div class="probs-bar" aria-hidden="true">
-              <span id="p-human" style="flex-grow:1;background:var(--sev-low)"></span>
-              <span id="p-mixed" style="flex-grow:0;background:var(--sev-mid)"></span>
-              <span id="p-ai" style="flex-grow:0;background:var(--sev-high)"></span>
-            </div>
-            <div class="probs-key">
-              <span><i style="background:var(--sev-low)"></i><span id="k-human">human 0%</span></span>
-              <span><i style="background:var(--sev-mid)"></i><span id="k-mixed">mixed 0%</span></span>
-              <span><i style="background:var(--sev-high)"></i><span id="k-ai">ai 0%</span></span>
-            </div>
-          </div>
         </div>
         <dl class="stats" id="stats"></dl>
       </section>
@@ -856,17 +975,26 @@
         </div>
       </section>
 
-      <section class="panel" aria-label="Findings">
-        <div class="panel-head">
-          <span class="eyebrow">Findings</span>
-          <button type="button" class="btn" id="copy">Copy report</button>
-        </div>
-        <div class="findings" id="findings">
-          <p class="empty"><strong>Nothing yet</strong>Paste a draft, or load one of the samples above.</p>
-        </div>
-      </section>
     </aside>
   </div>
+
+  <section class="panel findings-panel" id="findings-panel" aria-label="Findings">
+    <div class="panel-head">
+      <span class="eyebrow">Findings</span>
+      <div class="finding-tools">
+        <div class="chips" id="finding-chips"></div>
+        <button type="button" class="btn" id="copy">Copy report</button>
+      </div>
+    </div>
+    <div class="findings" id="findings">
+      <p class="empty"><strong>Nothing yet</strong>Paste a draft above, or load one of the samples.
+        <span class="empty-what">
+          <span>prose patterns</span><span>AI vocabulary</span><span>house rules</span>
+          <span>voice</span><span>resume craft</span>
+        </span>
+      </p>
+    </div>
+  </section>
 
   <footer class="colophon">
     <p class="caveat">
@@ -7675,7 +7803,7 @@ const ScanEngine = (() => {
       ).join('');
     }
 
-    // The rail is narrow; the pill already carries the full wording.
+    // The pill above already carries the full wording.
     function shortLabel(b) {
       return { clean: 'human', some: 'some', assisted: 'assisted', machine: 'machine' }[b.id] || b.id;
     }
@@ -7706,6 +7834,7 @@ const ScanEngine = (() => {
       const pill = $('ai-band');
       pill.hidden = false;
       pill.dataset.tone = band.tone;
+      $('lead-tile').dataset.tone = band.tone;
       $('ai-band-label').textContent = band.label;
 
       const conf = r.confidence ? ` · ${r.confidence} confidence` : '';
@@ -7840,49 +7969,108 @@ const ScanEngine = (() => {
       ['Prose patterns', (i) => i.source === 'prose'],
     ];
 
+    const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+    function findingCard(issue, locatable) {
+      const canJump = locatable.has(issue.id);
+      return (
+        `<button type="button" class="finding" data-id="${issue.id}" data-sev="${esc(issue.severity)}" data-locatable="${canJump ? 1 : 0}">` +
+        '<span class="finding-top">' +
+        `<span class="finding-kind">${esc(issue.label)}</span>` +
+        `<span class="finding-line">${issue.line ? 'line ' + issue.line : ''}</span>` +
+        '</span>' +
+        `<span class="finding-text">${esc(issue.source === 'voice' ? issue.text : truncate(issue.text, 90))}</span>` +
+        (issue.suggestion ? `<span class="finding-fix">${esc(issue.suggestion)}</span>` : '') +
+        (issue.note ? `<span class="finding-note">${esc(issue.note)}</span>` : '') +
+        '</button>'
+      );
+    }
+
+    /**
+     * Show one category, or all of them.
+     *
+     * The chips exist so a category is one click away. Findings used to be
+     * the last panel of a scrolling rail, which put "resume craft" several
+     * screens below the score that sent you looking for it.
+     */
+    function filterTo(id) {
+      $('finding-chips')
+        .querySelectorAll('.chip')
+        .forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.filter === id)));
+      $('findings')
+        .querySelectorAll('.f-group')
+        .forEach((g) => {
+          g.hidden = id !== 'all' && g.dataset.group !== id;
+        });
+    }
+
     function renderFindings(issues, r) {
-      if (!issues.length) {
+      const chips = $('finding-chips');
+      const v = r.voice;
+      const unchecked = v && v.available ? v.unavailable : [];
+
+      if (!issues.length && !unchecked.length) {
+        chips.innerHTML = '';
         $('findings').innerHTML =
           '<p class="empty"><strong>Nothing flagged</strong>This reads as human writing.</p>';
         return;
       }
 
       const locatable = new Set(marks.map((m) => m.id));
-      let html = '';
+      const sections = [];
 
       for (const [title, test] of GROUPS) {
         const group = issues.filter(test);
         if (!group.length) continue;
-        html += `<div class="group-head"><span class="eyebrow">${esc(title)}</span><span class="eyebrow">${group.length}</span></div>`;
-        for (const issue of group) {
-          const canJump = locatable.has(issue.id);
-          html +=
-            `<button type="button" class="finding" data-id="${issue.id}" data-sev="${esc(issue.severity)}" data-locatable="${canJump ? 1 : 0}">` +
-            '<span class="finding-top">' +
-            `<span class="finding-kind">${esc(issue.label)}</span>` +
-            `<span class="finding-line">${issue.line ? 'line ' + issue.line : ''}</span>` +
-            '</span>' +
-            `<span class="finding-text">${esc(issue.source === 'voice' ? issue.text : truncate(issue.text, 90))}</span>` +
-            (issue.suggestion ? `<span class="finding-fix">${esc(issue.suggestion)}</span>` : '') +
-            (issue.note ? `<span class="finding-note">${esc(issue.note)}</span>` : '') +
-            '</button>';
-        }
+        sections.push({
+          id: slug(title),
+          title,
+          count: group.length,
+          cards: group.map((i) => findingCard(i, locatable)).join(''),
+        });
       }
 
-      const v = r.voice;
-      if (v && v.available && v.unavailable.length) {
-        html +=
-          `<div class="group-head"><span class="eyebrow">Voice — not checked</span>` +
-          `<span class="eyebrow">${v.unavailable.length}</span></div>`;
-        for (const u of v.unavailable) {
-          html +=
-            `<div class="finding" data-sev="low" data-locatable="0">` +
-            `<span class="finding-top"><span class="finding-kind">${esc(u.label)}</span></span>` +
-            `<span class="finding-note">${esc(u.reason)}</span></div>`;
-        }
+      // A metric that could not be checked is reported, never left silent:
+      // saying nothing would read as "checked and fine".
+      if (unchecked.length) {
+        sections.push({
+          id: 'not-checked',
+          title: 'Voice — not checked',
+          count: unchecked.length,
+          cards: unchecked
+            .map(
+              (u) =>
+                '<div class="finding" data-sev="low" data-locatable="0">' +
+                `<span class="finding-top"><span class="finding-kind">${esc(u.label)}</span></span>` +
+                `<span class="finding-note">${esc(u.reason)}</span></div>`
+            )
+            .join(''),
+        });
       }
 
-      $('findings').innerHTML = html;
+      $('findings').innerHTML = sections
+        .map(
+          (sec) =>
+            `<section class="f-group" data-group="${sec.id}">` +
+            `<div class="group-head"><span class="eyebrow">${esc(sec.title)}</span>` +
+            `<span class="eyebrow">${sec.count}</span></div>` +
+            `<div class="finding-grid">${sec.cards}</div></section>`
+        )
+        .join('');
+
+      const total = sections.reduce((n, sec) => n + sec.count, 0);
+      chips.innerHTML = [{ id: 'all', title: 'All', count: total }, ...sections]
+        .map(
+          (sec, i) =>
+            `<button type="button" class="chip" data-filter="${sec.id}" aria-pressed="${i === 0}">` +
+            `${esc(sec.title)} <b>${sec.count}</b></button>`
+        )
+        .join('');
+
+      chips
+        .querySelectorAll('.chip')
+        .forEach((c) => c.addEventListener('click', () => filterTo(c.dataset.filter)));
+
       $('findings')
         .querySelectorAll('.finding[data-locatable="1"]')
         .forEach((el) => el.addEventListener('click', () => jumpTo(el.dataset.id)));
@@ -7902,6 +8090,9 @@ const ScanEngine = (() => {
     function focusFinding(id) {
       const el = $('findings').querySelector(`.finding[data-id="${id}"]`);
       if (!el) return;
+      // The finding may be sitting behind a category filter.
+      const group = el.closest('.f-group');
+      if (group && group.hidden) filterTo('all');
       $('findings').querySelectorAll('.finding').forEach((f) => (f.style.background = ''));
       el.style.background = 'var(--accent-wash)';
       el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
