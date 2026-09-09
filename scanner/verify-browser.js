@@ -498,7 +498,8 @@ async function readout(page) {
     value: document.getElementById('clean').value,
     draftValue: document.getElementById('draft').value,
     hint: document.getElementById('hint').textContent,
-    copyShown: !document.getElementById('copy-clean').hidden,
+    copyShown: !document.getElementById('copy-text').hidden,
+    copyLabel: document.getElementById('copy-text').textContent,
   }));
   check('the cleaned view shows', cleaned.shown === true);
   check('the cleaned text is populated', cleaned.value.length > 100, `${cleaned.value.length} chars`);
@@ -507,6 +508,7 @@ async function readout(page) {
   check('tier-1 vocabulary is swapped', !/cutting-edge/.test(cleaned.value), cleaned.value.slice(0, 80));
   check('the hint reports what was applied', /Applied \d+ fix/.test(cleaned.hint), cleaned.hint);
   check('a copy button appears in the cleaned view', cleaned.copyShown === true);
+  check('the copy button names the cleaned text', /cleaned/i.test(cleaned.copyLabel), cleaned.copyLabel);
   check(
     'the cleaned view does not capitalize wrapped lines',
     !/\n[A-Z][a-z]+ (ingenuity|sources|research)/.test(cleaned.value),

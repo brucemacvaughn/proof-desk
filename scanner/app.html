@@ -889,7 +889,7 @@
         <button type="button" class="btn btn-primary" id="scan">Scan it</button>
         <button type="button" class="btn" id="upload">Upload a file</button>
         <input type="file" id="file" accept=".pdf,.docx,.txt,.md,.markdown,application/pdf,text/plain" hidden>
-        <button type="button" class="btn" id="copy-clean" hidden>Copy cleaned text</button>
+        <button type="button" class="btn" id="copy-text">Copy draft</button>
         <span class="hint" id="hint">Scans as you type — the button is just here if you want it.</span>
       </div>
     </section>
@@ -1084,7 +1084,7 @@
       draft.hidden = next !== 'draft';
       proof.hidden = next !== 'proof';
       clean.hidden = next !== 'clean';
-      $('copy-clean').hidden = next !== 'clean';
+      $('copy-text').textContent = next === 'clean' ? 'Copy cleaned text' : 'Copy draft';
       $('view-draft').setAttribute('aria-pressed', String(next === 'draft'));
       $('view-proof').setAttribute('aria-pressed', String(next === 'proof'));
       $('view-clean').setAttribute('aria-pressed', String(next === 'clean'));
@@ -2208,16 +2208,21 @@
       setTimeout(() => (btn.textContent = 'Copy report'), 1600);
     });
 
-    $('copy-clean').addEventListener('click', async () => {
-      const btn = $('copy-clean');
+    // Copies whatever is on screen: the cleaned text in the cleaned view,
+    // otherwise the draft — which is where "More like me" leaves its edits,
+    // and where the marked-up view's text comes from.
+    $('copy-text').addEventListener('click', async () => {
+      const btn = $('copy-text');
+      const field = view === 'clean' ? clean : draft;
+      const label = view === 'clean' ? 'Copy cleaned text' : 'Copy draft';
       try {
-        await navigator.clipboard.writeText(clean.value);
+        await navigator.clipboard.writeText(field.value);
         btn.textContent = 'Copied';
       } catch {
-        clean.select();
+        field.select();
         btn.textContent = 'Press \u2318C';
       }
-      setTimeout(() => (btn.textContent = 'Copy cleaned text'), 1600);
+      setTimeout(() => (btn.textContent = label), 1600);
     });
 
     // ── Utils ────────────────────────────────────────────────────
