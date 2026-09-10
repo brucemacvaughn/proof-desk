@@ -7,6 +7,12 @@ Runs as a single self-contained web page, as a CLI, and as a Claude Code skill.
 **Zero dependencies. Nothing is uploaded anywhere** — every engine is plain
 JavaScript that runs in your browser or on your machine.
 
+**[proof-desk-six.vercel.app](https://proof-desk-six.vercel.app)** — the page,
+live. It is one static file: your draft never leaves the browser, and the host
+only ever serves the file.
+
+Or run it from disk, which is the same thing without the round trip:
+
 ```bash
 git clone https://github.com/brucemacvaughn/proof-desk
 cd proof-desk
